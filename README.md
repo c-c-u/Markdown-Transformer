@@ -66,6 +66,14 @@ python formula_editor.py
 C:\Conda\envs\transcript\python.exe formula_editor.py
 ```
 
+也可以使用包入口（与上面等价）：
+
+```powershell
+C:\Conda\envs\transcript\python.exe -m formula_editor_app
+```
+
+`formula_editor.py` 只是启动器，实际代码位于 `formula_editor_app/` 包中。
+
 ## 快速上手：求和公式
 
 以输入下面的求和公式为例：
@@ -282,25 +290,51 @@ $$
 
 ## 项目结构
 
+代码已经按功能拆分到包中，后续添加新结构、新符号或新交互时不需要修改一个超长文件：
+
 ```
 project/
-├── formula_editor.py   # 主程序（公式树、画布布局、编辑交互、实时输出）
-├── README.md           # 本说明文件
-└── .git/               # 仓库元数据（如存在）
+├── formula_editor.py          # 启动入口（python formula_editor.py）
+├── formula_editor_app/
+│   ├── __init__.py
+│   ├── __main__.py            # 支持 python -m formula_editor_app
+│   ├── config.py              # 常量、主题色、符号表、模板名称
+│   ├── model.py               # 公式树、遍历、模板工厂、序列化、纯函数
+│   ├── layout.py              # 布局引擎、Canvas 绘制、点击热区、结构包围盒
+│   ├── preview.py             # 输出区实时预览（mathtext 图片 + 矩阵自绘）
+│   ├── clipboard.py           # Windows 剪贴板
+│   ├── ui.py                  # Tkinter 窗口、主题、工具栏、菜单、输出区
+│   ├── app.py                 # 主窗口控制器、编辑交互、输出/复制
+│   ├── smoke.py               # 内置冒烟测试
+│   └── main.py                # 程序入口、DPI 感知、命令行参数
+├── README.md
+├── .gitignore                 # 忽略 Python 缓存
+└── .git/                      # 仓库元数据（如存在）
 ```
 
-`formula_editor.py` 内部大致分为：
+### 模块职责
 
-1. **公式树模型**：`Slot`、`TextRun`、`Placeholder`、`SumNode`、`IntegralNode`、`FractionNode`、`SuperscriptNode`、`RootNode`、`MatrixNode`。
-2. **画布布局引擎**：计算每段文本、方框、分式、根式、乘方、矩阵的位置与尺寸，生成点击热区和大型结构包围盒；同时根据公式高度决定画布高度。
-3. **`FormulaEditorApp`**：
-   - 构建 Tkinter/ttk 界面与交互式 Canvas；
-   - 处理点击、键盘输入、Tab 跳转、撤销/重做；
-   - 自动为结构左右生成不绘制方框的隐藏输入位置；
-   - 每次公式变化时立即同步 Markdown 源码；
-   - 用 matplotlib mathtext 渲染普通公式预览，矩阵公式使用画布自绘预览；
-   - 剪贴板复制。
-4. **`main()`**：DPI 感知、窗口入口和 `--smoke-test` 冒烟测试。
+1. **`config.py`**：颜色、字体尺寸、模板名称、运算符映射和面板符号列表。
+2. **`model.py`**：`Slot`、`TextRun`、`Placeholder` 及各种结构节点；遍历、模板工厂、隐藏空位归一化、LaTeX 序列化、Markdown 输出等纯逻辑，不依赖 Tkinter。
+3. **`layout.py`**：把公式树排成文本/方框/结构的位置，生成绘制命令、点击热区和 Canvas 绘制；`LayoutEngine` 由主应用继承。
+4. **`preview.py`**：输出区预览；普通公式使用 matplotlib mathtext，矩阵等 mathtext 不支持的结构使用画布自绘。
+5. **`ui.py`**：所有 Tkinter 控件和样式构建；不包含公式编辑状态逻辑。
+6. **`app.py`**：把模型、布局、预览、剪贴板和 UI 组合起来，处理点击、键盘、方向键切换、编辑、撤销/重做和复制。
+7. **`clipboard.py`**：Windows 系统剪贴板写入。
+8. **`smoke.py` / `main.py`**：冒烟测试与程序入口。
+
+### 添加新功能时的修改位置
+
+- **新增公式结构**：
+  1. 在 `model.py` 增加节点类，并更新 `child_slots()`、`iter_targets()`、`_iter_placeholders()`、`normalize_free_boundaries()`；
+  2. 在 `model.py` 的 `make_template()` 中登记；
+  3. 在 `layout.py` 增加布局方法，并在 `_layout_item()` 中分派；
+  4. 在 `model.py` 的 `serialize_item()` 中补充 LaTeX；
+  5. 在 `ui.py` 加入按钮或菜单项；
+  6. 如需要，在 `smoke.py` 增加冒烟验证。
+- **新增单个运算符符号**：在 `config.py` 的 `SYMBOL_LATEX` 和符号面板列表中加入即可；布局通过 `SYMBOL_LATEX` 自动选择符号字体。
+- **新增交互/快捷键**：在 `app.py` 中处理，必要时在 `ui.py` 绑定控件。
+- **新增预览渲染方式**：在 `preview.py` 中扩展。
 
 ## 冒烟测试
 
@@ -308,6 +342,12 @@ project/
 
 ```powershell
 C:\Conda\envs\transcript\python.exe formula_editor.py --smoke-test
+```
+
+也可以使用包入口：
+
+```powershell
+C:\Conda\envs\transcript\python.exe -m formula_editor_app --smoke-test
 ```
 
 预期输出包含：
@@ -341,10 +381,4 @@ $$
 - 更多希腊字母和关系符号面板
 - 复制后自动关闭提示、保存 `.md` 文件、更多画布交互
 
-添加新结构时通常需要：
-
-1. 在公式树中增加节点类型，或复用 `FractionNode` 等已有结构；
-2. 在 `make_template()` 中登记模板；
-3. 在工具栏加入按钮；
-4. 在布局引擎中实现该结构的排版和点击热区；
-5. 在 `serialize_item()` 中补充 LaTeX 序列化。
+具体修改位置见上面的「添加新功能时的修改位置」。
