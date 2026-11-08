@@ -7,17 +7,30 @@ from dataclasses import dataclass, field
 from tkinter import font as tkfont
 from typing import Optional, Union
 
-from .config import ACCENT, ITEM_GAP, PLACEHOLDER_FILL, PLACEHOLDER_OUTLINE, SOFT_ACCENT, SYMBOL_LATEX, TEXT
+from .config import (
+    ACCENT,
+    ITEM_GAP,
+    PLACEHOLDER_FILL,
+    PLACEHOLDER_OUTLINE,
+    SELECTION_FILL,
+    SOFT_ACCENT,
+    SYMBOL_FONT_CHARS,
+    TEXT,
+)
 from .model import (
     FractionNode,
     IntegralNode,
     MatrixNode,
     Placeholder,
     RootNode,
+    SelectionRow,
     Slot,
+    SubSuperscriptNode,
+    SubscriptNode,
     SumNode,
     SuperscriptNode,
     TextRun,
+    child_slots,
 )
 
 @dataclass
@@ -88,6 +101,7 @@ class Layout:
     draws: list[DrawOp]
     hits: list[HitArea]
     nodes: list[NodeBox] = field(default_factory=list)
+    selection: Optional[list[SelectionRow]] = None
 
 
 def shift_layout(layout: Layout, dx: float, dy: float) -> Layout:
@@ -156,12 +170,35 @@ def shift_layout(layout: Layout, dx: float, dy: float) -> Layout:
         )
         for node in layout.nodes
     ]
-    return Layout(layout.width, layout.ascent, layout.descent, draws, hits, nodes)
+    selection = None
+    if layout.selection:
+        selection = [
+            SelectionRow(
+                row.index,
+                row.offset,
+                row.x1 + dx,
+                row.y1 + dy,
+                row.x2 + dx,
+                row.y2 + dy,
+            )
+            for row in layout.selection
+        ]
+    return Layout(layout.width, layout.ascent, layout.descent, draws, hits, nodes, selection)
 
 
 
 class LayoutEngine:
     """提供布局计算与 Canvas 绘制方法；由主应用继承。"""
+
+    # 文本最左/最右侧的可点击扩展区：点击后在该文本旁添加新的输入位置。
+    TEXT_EDGE_INSIDE = 4.0
+    TEXT_EDGE_OUTSIDE = 8.0
+    # 结构（算符）左右两侧的可点击扩展区：点击后光标进入该结构前后的隐藏位置。
+    STRUCTURE_SIDE_MARGIN = 12.0
+    # 正在被选中的方框（(id(slot), index) 集合），用于让方框改用选中底色。
+    _selection_paint_keys: set[tuple[int, int]] = set()
+    # 被整体选中的结构，其内部这些槽位的方框同样改用选中底色。
+    _selection_slots: set[int] = set()
 
     def _font(self, size: float, italic: bool = False, family: Optional[str] = None) -> tkfont.Font:
         size = max(8, int(round(size)))
@@ -179,7 +216,7 @@ class LayoutEngine:
 
 
     def _char_font(self, char: str, size: float, upright: bool) -> tkfont.Font:
-        if char in SYMBOL_LATEX:
+        if char in SYMBOL_FONT_CHARS:
             return self._font(size, italic=False, family=self.symbol_font)
         italic = (not upright) and char.isalpha()
         return self._font(size, italic=italic)
@@ -203,6 +240,15 @@ class LayoutEngine:
         if isinstance(item, Placeholder):
             return self._layout_placeholder(parent_slot, index, x, baseline, size)
 
+        # 结构被选中时，它内部的方框也改用选中底色，避免黄色方框盖住选中效果。
+        # 要在布局子槽位之前登记，才能让结构内部的方框也生效。
+        paint_keys = getattr(self, "_selection_paint_keys", ())
+        if (id(parent_slot), index) in paint_keys:
+            selected_slots = getattr(self, "_selection_slots", None)
+            if selected_slots is not None:
+                for slot in child_slots(item):
+                    selected_slots.add(id(slot))
+
         if isinstance(item, SumNode):
             child = self._layout_sum(item, x, baseline, size)
         elif isinstance(item, IntegralNode):
@@ -211,6 +257,10 @@ class LayoutEngine:
             child = self._layout_fraction(item, x, baseline, size)
         elif isinstance(item, SuperscriptNode):
             child = self._layout_power(item, x, baseline, size)
+        elif isinstance(item, SubscriptNode):
+            child = self._layout_subscript(item, x, baseline, size)
+        elif isinstance(item, SubSuperscriptNode):
+            child = self._layout_subsup(item, x, baseline, size)
         elif isinstance(item, RootNode):
             child = self._layout_root(item, x, baseline, size)
         elif isinstance(item, MatrixNode):
@@ -302,16 +352,50 @@ class LayoutEngine:
         y2 = baseline + descent + 3
 
         if active:
-            background = DrawRect(x - 3, y1, cursor + 3, y2, SOFT_ACCENT, "", 0, ())
-            draws.insert(0, background)
+            # 已经处于选中状态时不再画浅色底，否则会盖住选中高亮；只保留光标线。
+            paint_keys = getattr(self, "_selection_paint_keys", ())
+            selected_slots = getattr(self, "_selection_slots", ())
+            selected = (id(slot), index) in paint_keys or id(slot) in selected_slots
+            if not selected:
+                background = DrawRect(x - 3, y1, cursor + 3, y2, SOFT_ACCENT, "", 0, ())
+                draws.insert(0, background)
             caret = max(0, min(self.caret, len(text)))
             cx = caret_positions[caret]
             draws.append(DrawLine(cx, y1 + 2, cx, y2 - 2, ACCENT, 1.6))
 
         hits: list[HitArea] = []
         if item.editable:
+            # 两端各补一个边缘位置，使字符偏移与点击位置一一对应。
+            caret_edges = [x] + caret_positions[1:] + [cursor]
             hits.append(
-                HitArea(slot, index, x - 2, y1, cursor + 2, y2, caret_positions, "text")
+                HitArea(slot, index, x - 2, y1, cursor + 2, y2, caret_edges, "text")
+            )
+            # 文本左右两端额外提供“添加新项”的可点击区域。
+            inside = self.TEXT_EDGE_INSIDE
+            outside = self.TEXT_EDGE_OUTSIDE
+            hits.append(
+                HitArea(
+                    slot,
+                    index,
+                    x - outside,
+                    y1,
+                    x + inside,
+                    y2,
+                    None,
+                    "text-edge-left",
+                )
+            )
+            hits.append(
+                HitArea(
+                    slot,
+                    index,
+                    cursor - inside,
+                    y1,
+                    cursor + outside,
+                    y2,
+                    None,
+                    "text-edge-right",
+                )
             )
 
         return Layout(cursor - x, ascent, descent, draws, hits)
@@ -342,12 +426,27 @@ class LayoutEngine:
         box_width = max(26.0, float(font.measure("0")) * 2.3)
         top = baseline - ascent - 4
         bottom = baseline + descent + 4
+        paint_keys = getattr(self, "_selection_paint_keys", ())
+        selected_slots = getattr(self, "_selection_slots", ())
+        selected = (id(slot), index) in paint_keys or id(slot) in selected_slots
 
-        if active:
-            fill = SOFT_ACCENT
+        if active and selected:
+            # 光标在方框里、同时方框又被选中：保留选中底色，只叠加高亮边框和光标。
+            fill = SELECTION_FILL
             outline = ACCENT
             border_width = 2.0
             dash: tuple[int, ...] = ()
+        elif active:
+            fill = SOFT_ACCENT
+            outline = ACCENT
+            border_width = 2.0
+            dash = ()
+        elif selected:
+            # 选中时方框用与选中高亮相同的底色，避免方框颜色盖住选中效果。
+            fill = SELECTION_FILL
+            outline = ACCENT
+            border_width = 1.4
+            dash = ()
         else:
             fill = PLACEHOLDER_FILL
             outline = PLACEHOLDER_OUTLINE
@@ -358,7 +457,13 @@ class LayoutEngine:
             DrawRect(x, top, x + box_width, bottom, fill, outline, border_width, dash)
         ]
         if active:
-            draws.append(DrawLine(x + 8, top + 6, x + 8, bottom - 6, ACCENT, 1.6))
+            if selected:
+                # 只画一条内边框表示“正在编辑”，不再覆盖整块底色。
+                draws.append(
+                    DrawRect(x + 2.5, top + 2.5, x + box_width - 2.5, bottom - 2.5, "", ACCENT, 1.2, ())
+                )
+            else:
+                draws.append(DrawLine(x + 8, top + 6, x + 8, bottom - 6, ACCENT, 1.6))
 
         hits = [HitArea(slot, index, x, top, x + box_width, bottom, None, "placeholder")]
         return Layout(box_width, ascent + 4, descent + 4, draws, hits)
@@ -522,6 +627,70 @@ class LayoutEngine:
         return Layout(width, ascent, descent, draws, hits, nodes)
 
 
+    def _layout_subscript(self, node: SubscriptNode, x: float, baseline: float, size: float) -> Layout:
+        script_size = max(11.0, size * 0.64)
+        base = self._layout_slot(node.base, 0.0, 0.0, size)
+        subscript = self._layout_slot(node.subscript, 0.0, 0.0, script_size)
+
+        subscript_baseline = max(base.descent * 0.55, size * 0.22)
+        base_shifted = shift_layout(base, x, baseline)
+        subscript_shifted = shift_layout(
+            subscript,
+            x + base.width + 2,
+            baseline + subscript_baseline,
+        )
+
+        draws = base_shifted.draws + subscript_shifted.draws
+        ascent = max(base.ascent, -subscript_baseline + subscript.ascent)
+        descent = max(base.descent, subscript_baseline + subscript.descent)
+        width = base.width + 2 + subscript.width
+        hits = base_shifted.hits + subscript_shifted.hits
+        nodes = base_shifted.nodes + subscript_shifted.nodes
+        return Layout(width, ascent, descent, draws, hits, nodes)
+
+
+    def _layout_subsup(self, node: SubSuperscriptNode, x: float, baseline: float, size: float) -> Layout:
+        script_size = max(11.0, size * 0.64)
+        base = self._layout_slot(node.base, 0.0, 0.0, size)
+        subscript = self._layout_slot(node.subscript, 0.0, 0.0, script_size)
+        superscript = self._layout_slot(node.superscript, 0.0, 0.0, script_size)
+
+        script_x = x + base.width + 2
+        superscript_baseline = -max(base.ascent * 0.52, size * 0.38)
+        subscript_baseline = max(base.descent * 0.55, size * 0.22)
+        base_shifted = shift_layout(base, x, baseline)
+        superscript_shifted = shift_layout(
+            superscript,
+            script_x,
+            baseline + superscript_baseline,
+        )
+        subscript_shifted = shift_layout(
+            subscript,
+            script_x,
+            baseline + subscript_baseline,
+        )
+
+        draws = (
+            base_shifted.draws
+            + superscript_shifted.draws
+            + subscript_shifted.draws
+        )
+        ascent = max(base.ascent, -superscript_baseline + superscript.ascent)
+        descent = max(base.descent, subscript_baseline + subscript.descent)
+        width = base.width + 2 + max(subscript.width, superscript.width)
+        hits = (
+            base_shifted.hits
+            + superscript_shifted.hits
+            + subscript_shifted.hits
+        )
+        nodes = (
+            base_shifted.nodes
+            + superscript_shifted.nodes
+            + subscript_shifted.nodes
+        )
+        return Layout(width, ascent, descent, draws, hits, nodes)
+
+
     def _layout_root(self, node: RootNode, x: float, baseline: float, size: float) -> Layout:
         radicand = self._layout_slot(node.radicand, 0.0, 0.0, size)
         index_layout: Optional[Layout] = None
@@ -642,6 +811,17 @@ class LayoutEngine:
         baseline_offset: float,
     ) -> None:
         canvas.delete("all")
+        if layout.selection:
+            for row in layout.selection:
+                canvas.create_rectangle(
+                    row.x1 + x_offset,
+                    row.y1 + baseline_offset,
+                    row.x2 + x_offset,
+                    row.y2 + baseline_offset,
+                    fill=SELECTION_FILL,
+                    outline="",
+                    width=0,
+                )
         for draw in layout.draws:
             if isinstance(draw, DrawText):
                 canvas.create_text(

@@ -26,7 +26,6 @@ from .config import (
     ITEM_GAP,
     MAX_CANVAS_HEIGHT,
     MIN_CANVAS_HEIGHT,
-    MORE_SYMBOLS,
     MUTED,
     PLACEHOLDER,
     PLACEHOLDER_FILL,
@@ -35,7 +34,7 @@ from .config import (
     PRIMARY_SYMBOLS,
     SOFT_ACCENT,
     SUCCESS,
-    SYMBOL_LATEX,
+    SYMBOL_GROUPS,
     TEMPLATE_LABELS,
     TEXT,
     WARNING,
@@ -271,7 +270,7 @@ class UIBuilderMixin:
         ttk.Label(head, text="公式编辑 · 实时预览", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
             head,
-            text="结构两侧空位不显示方框；←/→ 切换输入位置",
+            text="点击文本边缘/算符两侧添加项；拖动可选中内容；←/→ 切换输入位置",
             style="CardMuted.TLabel",
         ).grid(row=0, column=1, sticky="e")
 
@@ -286,7 +285,6 @@ class UIBuilderMixin:
             ("integral", "∫ 积分"),
             ("derivative", "d/dx 微分"),
             ("fraction", "a/b 分式"),
-            ("power", "xⁿ 乘方"),
         ):
             button = ttk.Button(
                 structure_row,
@@ -297,6 +295,16 @@ class UIBuilderMixin:
             )
             button.pack(side="left", padx=(0, 6))
             button.configure(cursor="hand2")
+
+        self._make_menu_button(
+            structure_row,
+            "角标",
+            (
+                ("上角标（乘方）  x^n", lambda: self.insert_template("power")),
+                ("下角标  x_n", lambda: self.insert_template("subscript")),
+                ("上下角标  x_n^m", lambda: self.insert_template("sub_sup")),
+            ),
+        )
 
         self._make_menu_button(
             structure_row,
@@ -364,15 +372,13 @@ class UIBuilderMixin:
             button.pack(side="left", padx=(0, 3))
             button.configure(cursor="hand2")
 
-        ttk.Separator(symbol_row, orient="vertical").pack(side="left", fill="y", padx=(4, 6), pady=2)
-        self._make_menu_button(
-            symbol_row,
-            "更多符号",
-            tuple((glyph, lambda g=glyph: self.insert_symbol(g)) for glyph in MORE_SYMBOLS),
-            style="SymbolMore.TMenubutton",
-            padx=(0, 0),
-            menu_font=(self.symbol_font, 12),
-        )
+        # 「更多符号」按类别拆分成多个下拉菜单：基本运算 / 集合 / 微积分 / 变量 / 逻辑与箭头。
+        category_row = ttk.Frame(toolbar, style="Card.TFrame")
+        category_row.pack(fill="x", pady=(6, 0))
+        ttk.Label(category_row, text="更多符号", style="CardMuted.TLabel").pack(side="left", padx=(2, 7))
+
+        for group_label, entries in SYMBOL_GROUPS:
+            self._make_symbol_group_button(category_row, group_label, entries)
 
         canvas_shell = tk.Frame(body, bg=BORDER, bd=0)
         canvas_shell.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
@@ -393,6 +399,8 @@ class UIBuilderMixin:
 
         self.canvas.bind("<Configure>", self._on_canvas_configure)
         self.canvas.bind("<Button-1>", self._on_canvas_click)
+        self.canvas.bind("<B1-Motion>", self._on_canvas_drag_motion)
+        self.canvas.bind("<ButtonRelease-1>", self._on_canvas_drag_end)
         self.canvas.bind("<Motion>", self._on_canvas_motion)
         self.canvas.bind("<Leave>", self._on_canvas_leave)
         self.canvas.bind("<Key>", self._on_canvas_key)
@@ -428,7 +436,7 @@ class UIBuilderMixin:
 
         tk.Label(
             footer,
-            text="←/→ 切换输入位置 · Backspace 删除 · Enter 复制",
+            text="拖动鼠标可选中一段内容 · Enter 复制",
             bg=CARD,
             fg="#9ca3af",
             font=(self.ui_font, 9),
@@ -450,6 +458,39 @@ class UIBuilderMixin:
             menu.add_command(label=label, command=command)
         button = ttk.Menubutton(parent, text=text, width=0, style=style, menu=menu)
         button.pack(side="left", padx=padx)
+        button.configure(cursor="hand2")
+        return button
+
+
+    def _symbol_menu(self, parent: tk.Misc, entries) -> tk.Menu:
+        """把一组符号排成弹出菜单。
+
+        ``entries`` 里既可以放单个符号（点击即插入），也可以放
+        ``(子菜单名, 条目元组)`` 形式的级联子菜单，用来收纳较长的分类
+        （例如希腊字母的小写、大写各自一个子菜单）。
+        """
+        menu = tk.Menu(parent, tearoff=0, font=(self.symbol_font, 12))
+        for entry in entries:
+            if isinstance(entry, tuple):
+                label, sub_entries = entry
+                menu.add_cascade(label=label, menu=self._symbol_menu(parent, sub_entries))
+            else:
+                menu.add_command(
+                    label=entry,
+                    command=lambda glyph=entry: self.insert_symbol(glyph),
+                )
+        return menu
+
+
+    def _make_symbol_group_button(self, parent: ttk.Frame, label: str, entries) -> ttk.Menubutton:
+        button = ttk.Menubutton(
+            parent,
+            text=label,
+            width=0,
+            style="SymbolMore.TMenubutton",
+            menu=self._symbol_menu(parent, entries),
+        )
+        button.pack(side="left", padx=(0, 6))
         button.configure(cursor="hand2")
         return button
 
