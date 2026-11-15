@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from .config import SELECTION_FILL, SYMBOL_LATEX, iter_panel_glyphs
+from .config import ACCENT_LATEX, SELECTION_FILL, SYMBOL_LATEX, iter_panel_glyphs
 from .model import (
     Placeholder,
     SumNode,
@@ -106,6 +106,32 @@ class SmokeTestMixin:
             "backspace at the front of a subscript should unwrap the script structure"
         )
 
+        # 顶标：只有内容一个方框，标记画在内容上方，导出成对应 LaTeX 命令。
+        for key, expected in (
+            ("hat", r"\hat{x}"),
+            ("bar", r"\bar{x}"),
+            ("vec", r"\vec{x}"),
+            ("overline", r"\overline{x}"),
+        ):
+            self.clear_formula()
+            self.insert_template(key)
+            assert count_placeholders(self.root_slot) == 1, key
+            self._insert_text("x")
+            assert normalize_formula(serialize_slot(self.root_slot)) == expected, (
+                key,
+                normalize_formula(serialize_slot(self.root_slot)),
+            )
+            self._render_canvas()
+            self.root.update()
+            self._update_output_preview()
+            assert self._output_preview_pil is not None, (key, self._output_preview_error)
+
+        # 全部顶标命令都要能被 mathtext 渲染。
+        accent_latex = " ".join(
+            "a" + command + "{x}b" for command in ACCENT_LATEX.values()
+        )
+        self._render_latex_image(accent_latex)
+
         self.clear_formula()
         self.insert_template("nth_root")
         self._insert_text("x")
@@ -141,9 +167,6 @@ class SmokeTestMixin:
             ("α", r"\alpha"),
             ("Ω", r"\Omega"),
             ("⇔", r"\Leftrightarrow"),
-            ("²", r"^{2}"),
-            ("ₙ", r"_{n}"),
-            ("°", r"^{\circ}"),
         ):
             self.clear_formula()
             self.insert_symbol(glyph)
@@ -152,20 +175,6 @@ class SmokeTestMixin:
             latex_symbol = normalize_formula(serialize_slot(self.root_slot))
             assert expected in latex_symbol, (glyph, latex_symbol)
             assert self.canvas.find_all(), f"符号 {glyph} 应该绘制到画布上"
-
-        # 「标识」里的上/下标字形跟在变量后面时，导出成标准的 ^{} / _{}。
-        self.clear_formula()
-        self._insert_text("x")
-        self.insert_symbol("²")
-        assert normalize_formula(serialize_slot(self.root_slot)) == "x^{2}", (
-            normalize_formula(serialize_slot(self.root_slot))
-        )
-        self.clear_formula()
-        self._insert_text("a")
-        self.insert_symbol("ₙ")
-        assert normalize_formula(serialize_slot(self.root_slot)) == "a_{n}", (
-            normalize_formula(serialize_slot(self.root_slot))
-        )
 
         # 面板里的每个符号都必须有 LaTeX 映射（ASCII 四则运算原样进 LaTeX，不需要映射）。
         unmapped = [

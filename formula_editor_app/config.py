@@ -12,8 +12,30 @@ TEMPLATE_LABELS = {
     "power": "上角标",
     "subscript": "下角标",
     "sub_sup": "上下角标",
+    "hat": "帽子",
+    "widehat": "宽帽子",
+    "bar": "横线",
+    "overline": "上划线",
+    "tilde": "波浪",
+    "widetilde": "宽波浪",
+    "dot": "单点",
+    "ddot": "双点",
+    "vec": "矢量",
     "sqrt": "开方",
     "nth_root": "n 次根",
+}
+
+# 顶标：结构内部的内容上方加一个标记，导出为对应的 LaTeX 命令。
+ACCENT_LATEX = {
+    "hat": r"\hat",
+    "widehat": r"\widehat",
+    "bar": r"\bar",
+    "overline": r"\overline",
+    "tilde": r"\tilde",
+    "widetilde": r"\widetilde",
+    "dot": r"\dot",
+    "ddot": r"\ddot",
+    "vec": r"\vec",
 }
 
 # 单符号运算符：画布显示 Unicode 字形，导出时替换为对应的 LaTeX 命令。
@@ -115,107 +137,15 @@ SYMBOL_LATEX = {
     "Φ": r"\Phi ",
     "Ψ": r"\Psi ",
     "Ω": r"\Omega ",
-    # -- 标识：角度与上/下标字形 -------------------------------------------
-    "°": r"^{\circ}",
-    "⁰": r"^{0}",
-    "¹": r"^{1}",
-    "²": r"^{2}",
-    "³": r"^{3}",
-    "⁴": r"^{4}",
-    "⁵": r"^{5}",
-    "⁶": r"^{6}",
-    "⁷": r"^{7}",
-    "⁸": r"^{8}",
-    "⁹": r"^{9}",
-    "⁺": r"^{+}",
-    "⁻": r"^{-}",
-    "⁼": r"^{=}",
-    "ⁿ": r"^{n}",
-    "ⁱ": r"^{i}",
-    "₀": r"_{0}",
-    "₁": r"_{1}",
-    "₂": r"_{2}",
-    "₃": r"_{3}",
-    "₄": r"_{4}",
-    "₅": r"_{5}",
-    "₆": r"_{6}",
-    "₇": r"_{7}",
-    "₈": r"_{8}",
-    "₉": r"_{9}",
-    "₊": r"_{+}",
-    "₋": r"_{-}",
-    "₌": r"_{=}",
-    "ₐ": r"_{a}",
-    "ₑ": r"_{e}",
-    "ₒ": r"_{o}",
-    "ₓ": r"_{x}",
-    "ₕ": r"_{h}",
-    "ₖ": r"_{k}",
-    "ₗ": r"_{l}",
-    "ₘ": r"_{m}",
-    "ₙ": r"_{n}",
-    "ₚ": r"_{p}",
-    "ₛ": r"_{s}",
-    "ₜ": r"_{t}",
 }
 
 # 数集符号（字母类字形，但按正体符号绘制）。
 NUMBER_SET_SYMBOLS = ("ℕ", "ℤ", "ℚ", "ℝ", "ℂ")
 
-# 「标识」分类：角度符号与 Unicode 自带的上/下标字形。
-# 它们在画布上直接显示为小号字形，导出时还原成 ``^{...}`` / ``_{...}``。
-SCRIPT_SUPERSCRIPT_SYMBOLS = (
-    "⁰",
-    "¹",
-    "²",
-    "³",
-    "⁴",
-    "⁵",
-    "⁶",
-    "⁷",
-    "⁸",
-    "⁹",
-    "⁺",
-    "⁻",
-    "⁼",
-    "ⁿ",
-    "ⁱ",
-)
-SCRIPT_SUBSCRIPT_SYMBOLS = (
-    "₀",
-    "₁",
-    "₂",
-    "₃",
-    "₄",
-    "₅",
-    "₆",
-    "₇",
-    "₈",
-    "₉",
-    "₊",
-    "₋",
-    "₌",
-    "ₐ",
-    "ₑ",
-    "ₒ",
-    "ₓ",
-    "ₕ",
-    "ₖ",
-    "ₗ",
-    "ₘ",
-    "ₙ",
-    "ₚ",
-    "ₛ",
-    "ₜ",
-)
-SCRIPT_SYMBOLS = ("°",) + SCRIPT_SUPERSCRIPT_SYMBOLS + SCRIPT_SUBSCRIPT_SYMBOLS
-
-# 画布上用「符号字体」正体绘制的字符：非字母类符号 + 数集字母 + 上/下标字形。
+# 画布上用「符号字体」正体绘制的字符：非字母类符号 + 数集字母。
 # 拉丁字母、希腊字母仍然使用数学字体，小写字母按变量斜体排版。
 SYMBOL_FONT_CHARS = frozenset(
-    {char for char in SYMBOL_LATEX if not char.isalpha()}
-    | set(NUMBER_SET_SYMBOLS)
-    | set(SCRIPT_SYMBOLS)
+    {char for char in SYMBOL_LATEX if not char.isalpha()} | set(NUMBER_SET_SYMBOLS)
 )
 
 # 四则运算等单行算符按「字符」处理：它们不携带结构位置，也不参与自动拆分；
@@ -330,14 +260,6 @@ SYMBOL_GROUPS = (
         ),
     ),
     (
-        "标识",
-        (
-            "°",
-            ("上标", SCRIPT_SUPERSCRIPT_SYMBOLS),
-            ("下标", SCRIPT_SUBSCRIPT_SYMBOLS),
-        ),
-    ),
-    (
         "逻辑与箭头",
         (
             "∧",
@@ -355,6 +277,33 @@ SYMBOL_GROUPS = (
             "⇔",
             "⊥",
             "∥",
+        ),
+    ),
+)
+
+# 「更多符号」里的结构分类：菜单项是 (显示名, 模板键)，点击后插入对应结构。
+# 角标、顶标都需要填写方框，所以放在结构分类里，而不是单字符符号分类里。
+TEMPLATE_GROUPS = (
+    (
+        "角标",
+        (
+            ("上角标（乘方）  x^n", "power"),
+            ("下角标  x_n", "subscript"),
+            ("上下角标  x_n^m", "sub_sup"),
+        ),
+    ),
+    (
+        "顶标",
+        (
+            ("帽子（hat）", "hat"),
+            ("宽帽子（widehat）", "widehat"),
+            ("横线（bar）", "bar"),
+            ("上划线（overline）", "overline"),
+            ("波浪（tilde）", "tilde"),
+            ("宽波浪（widetilde）", "widetilde"),
+            ("单点（dot）", "dot"),
+            ("双点（ddot）", "ddot"),
+            ("矢量（vec）", "vec"),
         ),
     ),
 )

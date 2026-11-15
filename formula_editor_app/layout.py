@@ -18,6 +18,7 @@ from .config import (
     TEXT,
 )
 from .model import (
+    AccentNode,
     FractionNode,
     IntegralNode,
     MatrixNode,
@@ -190,6 +191,19 @@ def shift_layout(layout: Layout, dx: float, dy: float) -> Layout:
 class LayoutEngine:
     """提供布局计算与 Canvas 绘制方法；由主应用继承。"""
 
+    # 顶标在画布上绘制的字形；空字符串表示画一条与内容等宽的横线。
+    ACCENT_GLYPHS = {
+        "hat": "ˆ",
+        "widehat": "ˆ",
+        "bar": "",
+        "overline": "",
+        "tilde": "˜",
+        "widetilde": "˜",
+        "dot": "˙",
+        "ddot": "¨",
+        "vec": "→",
+    }
+
     # 文本最左/最右侧的可点击扩展区：点击后在该文本旁添加新的输入位置。
     TEXT_EDGE_INSIDE = 4.0
     TEXT_EDGE_OUTSIDE = 8.0
@@ -261,6 +275,8 @@ class LayoutEngine:
             child = self._layout_subscript(item, x, baseline, size)
         elif isinstance(item, SubSuperscriptNode):
             child = self._layout_subsup(item, x, baseline, size)
+        elif isinstance(item, AccentNode):
+            child = self._layout_accent(item, x, baseline, size)
         elif isinstance(item, RootNode):
             child = self._layout_root(item, x, baseline, size)
         elif isinstance(item, MatrixNode):
@@ -689,6 +705,46 @@ class LayoutEngine:
             + subscript_shifted.nodes
         )
         return Layout(width, ascent, descent, draws, hits, nodes)
+
+
+    def _layout_accent(self, node: AccentNode, x: float, baseline: float, size: float) -> Layout:
+        body = self._layout_slot(node.body, 0.0, 0.0, size)
+        body_shifted = shift_layout(body, x, baseline)
+
+        glyph = self.ACCENT_GLYPHS.get(node.mark, "ˆ")
+        gap = max(2.0, size * 0.12)
+        top = -body.ascent - gap
+
+        draws = list(body_shifted.draws)
+        if glyph:
+            font = self._font(max(10.0, size * 0.62), italic=False)
+            mark_width, mark_ascent, mark_descent = self._measure(font, glyph)
+            mark_baseline = top - mark_descent
+            draws.append(
+                DrawText(
+                    x + (body.width - mark_width) / 2,
+                    mark_baseline,
+                    glyph,
+                    font,
+                    TEXT,
+                )
+            )
+            ascent_total = -mark_baseline + mark_ascent
+        else:
+            # 横线：紧贴内容上方画一条与内容同宽的线。
+            line_y = top - 1
+            draws.append(DrawLine(x, line_y, x + body.width, line_y, TEXT, 1.6))
+            ascent_total = -line_y + 1.6
+
+        ascent = max(ascent_total, body.ascent)
+        return Layout(
+            body.width,
+            ascent,
+            body.descent,
+            draws,
+            body_shifted.hits,
+            body_shifted.nodes,
+        )
 
 
     def _layout_root(self, node: RootNode, x: float, baseline: float, size: float) -> Layout:

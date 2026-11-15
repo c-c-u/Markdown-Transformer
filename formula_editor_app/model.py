@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Optional, Union
 
-from .config import PLACEHOLDER, PLAIN_OPERATOR_CHARS, SYMBOL_LATEX
+from .config import ACCENT_LATEX, PLACEHOLDER, PLAIN_OPERATOR_CHARS, SYMBOL_LATEX
 
 @dataclass
 class Slot:
@@ -85,6 +85,18 @@ class SubSuperscriptNode:
 
 
 @dataclass
+class AccentNode:
+    """顶标：内容上方加帽子、横线、波浪、点、矢量箭头等标记。
+
+    ``mark`` 是 ``config.ACCENT_LATEX`` 里的键（hat、bar、vec …），
+    决定画布上画哪种标记、导出成哪条 LaTeX 命令。
+    """
+
+    body: Slot
+    mark: str = "hat"
+
+
+@dataclass
 class RootNode:
     """平方根或 n 次根；index 为 None 时是平方根。"""
 
@@ -108,6 +120,7 @@ Element = Union[
     SuperscriptNode,
     SubscriptNode,
     SubSuperscriptNode,
+    AccentNode,
     RootNode,
     MatrixNode,
 ]
@@ -177,6 +190,10 @@ def make_subsup_node() -> SubSuperscriptNode:
     )
 
 
+def make_accent_node(mark: str) -> AccentNode:
+    return AccentNode(body=new_slot("顶标内容"), mark=mark)
+
+
 def make_sqrt_node() -> RootNode:
     return RootNode(radicand=new_slot("被开方数"), index=None)
 
@@ -209,6 +226,8 @@ def make_template(key: str) -> Element:
         return make_subscript_node()
     if key == "sub_sup":
         return make_subsup_node()
+    if key in ACCENT_LATEX:
+        return make_accent_node(key)
     if key == "sqrt":
         return make_sqrt_node()
     if key == "nth_root":
@@ -246,6 +265,8 @@ def _iter_placeholders(slot: Slot):
             yield from _iter_placeholders(item.base)
             yield from _iter_placeholders(item.subscript)
             yield from _iter_placeholders(item.superscript)
+        elif isinstance(item, AccentNode):
+            yield from _iter_placeholders(item.body)
         elif isinstance(item, RootNode):
             yield from _iter_placeholders(item.radicand)
             if item.index is not None:
@@ -273,6 +294,8 @@ def child_slots(node: Element) -> tuple[Slot, ...]:
         return (node.base, node.subscript)
     if isinstance(node, SubSuperscriptNode):
         return (node.base, node.subscript, node.superscript)
+    if isinstance(node, AccentNode):
+        return (node.body,)
     if isinstance(node, RootNode):
         if node.index is None:
             return (node.radicand,)
@@ -298,6 +321,7 @@ def is_structure_item(item: Element) -> bool:
             SuperscriptNode,
             SubscriptNode,
             SubSuperscriptNode,
+            AccentNode,
             RootNode,
             MatrixNode,
         ),
@@ -368,6 +392,8 @@ def iter_targets(slot: Slot):
             yield from iter_targets(item.base)
             yield from iter_targets(item.subscript)
             yield from iter_targets(item.superscript)
+        elif isinstance(item, AccentNode):
+            yield from iter_targets(item.body)
         elif isinstance(item, RootNode):
             yield from iter_targets(item.radicand)
             if item.index is not None:
@@ -395,6 +421,8 @@ def first_placeholder_in_node(node: Element):
         slots = (node.base, node.subscript)
     elif isinstance(node, SubSuperscriptNode):
         slots = (node.base, node.subscript, node.superscript)
+    elif isinstance(node, AccentNode):
+        slots = (node.body,)
     elif isinstance(node, RootNode):
         slots = (node.radicand, node.index) if node.index is not None else (node.radicand,)
     elif isinstance(node, MatrixNode):
@@ -832,6 +860,9 @@ def serialize_item(item: Element) -> str:
             f"_{{{serialize_slot(item.subscript)}}}"
             f"^{{{serialize_slot(item.superscript)}}}"
         )
+    if isinstance(item, AccentNode):
+        command = ACCENT_LATEX.get(item.mark, r"\hat")
+        return f"{command}{{{serialize_slot(item.body)}}}"
     if isinstance(item, RootNode):
         radicand = serialize_slot(item.radicand)
         if item.index is None:

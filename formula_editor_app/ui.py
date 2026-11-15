@@ -35,6 +35,7 @@ from .config import (
     SOFT_ACCENT,
     SUCCESS,
     SYMBOL_GROUPS,
+    TEMPLATE_GROUPS,
     TEMPLATE_LABELS,
     TEXT,
     WARNING,
@@ -298,16 +299,6 @@ class UIBuilderMixin:
 
         self._make_menu_button(
             structure_row,
-            "角标",
-            (
-                ("上角标（乘方）  x^n", lambda: self.insert_template("power")),
-                ("下角标  x_n", lambda: self.insert_template("subscript")),
-                ("上下角标  x_n^m", lambda: self.insert_template("sub_sup")),
-            ),
-        )
-
-        self._make_menu_button(
-            structure_row,
             "√ 开方",
             (
                 ("平方根  √", lambda: self.insert_template("sqrt")),
@@ -372,13 +363,16 @@ class UIBuilderMixin:
             button.pack(side="left", padx=(0, 3))
             button.configure(cursor="hand2")
 
-        # 「更多符号」按类别拆分成多个下拉菜单：基本运算 / 集合 / 微积分 / 变量 / 逻辑与箭头。
+        # 「更多符号」按类别拆分成多个下拉菜单：基本运算 / 集合 / 微积分 / 变量 / 逻辑与箭头，
+        # 后面接着需要填方框的结构分类：角标 / 顶标。
         category_row = ttk.Frame(toolbar, style="Card.TFrame")
         category_row.pack(fill="x", pady=(6, 0))
         ttk.Label(category_row, text="更多符号", style="CardMuted.TLabel").pack(side="left", padx=(2, 7))
 
         for group_label, entries in SYMBOL_GROUPS:
             self._make_symbol_group_button(category_row, group_label, entries)
+        for group_label, entries in TEMPLATE_GROUPS:
+            self._make_template_group_button(category_row, group_label, entries)
 
         canvas_shell = tk.Frame(body, bg=BORDER, bd=0)
         canvas_shell.grid(row=2, column=0, sticky="nsew", pady=(10, 0))
@@ -489,6 +483,26 @@ class UIBuilderMixin:
             width=0,
             style="SymbolMore.TMenubutton",
             menu=self._symbol_menu(parent, entries),
+        )
+        button.pack(side="left", padx=(0, 6))
+        button.configure(cursor="hand2")
+        return button
+
+
+    def _make_template_group_button(self, parent: ttk.Frame, label: str, entries) -> ttk.Menubutton:
+        """结构分类下拉菜单：菜单项是 (显示名, 模板键)，点击后插入对应结构。"""
+        menu = tk.Menu(parent, tearoff=0, font=(self.ui_font, 10))
+        for item_label, key in entries:
+            menu.add_command(
+                label=item_label,
+                command=lambda k=key: self.insert_template(k),
+            )
+        button = ttk.Menubutton(
+            parent,
+            text=label,
+            width=0,
+            style="SymbolMore.TMenubutton",
+            menu=menu,
         )
         button.pack(side="left", padx=(0, 6))
         button.configure(cursor="hand2")
