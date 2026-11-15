@@ -271,7 +271,7 @@ class UIBuilderMixin:
         ttk.Label(head, text="公式编辑 · 实时预览", style="CardTitle.TLabel").grid(row=0, column=0, sticky="w")
         ttk.Label(
             head,
-            text="点击文本边缘/算符两侧添加项；拖动可选中内容；←/→ 切换输入位置",
+            text="点击文本边缘/算符两侧添加项；拖动可选中内容；←/→ 切换输入位置，↑/↓ 切换上下格位",
             style="CardMuted.TLabel",
         ).grid(row=0, column=1, sticky="e")
 
@@ -405,6 +405,8 @@ class UIBuilderMixin:
         self.canvas.bind("<ISO_Left_Tab>", lambda event: self._move_selection(-1))
         self.canvas.bind("<Left>", lambda event: self._move_caret(-1))
         self.canvas.bind("<Right>", lambda event: self._move_caret(1))
+        self.canvas.bind("<Up>", lambda event: self._move_caret_vertical(-1))
+        self.canvas.bind("<Down>", lambda event: self._move_caret_vertical(1))
         self.canvas.bind("<Return>", lambda event: (self.copy_markdown(), "break")[1])
         self.canvas.bind("<KP_Enter>", lambda event: (self.copy_markdown(), "break")[1])
         self.canvas.bind("<Control-v>", self._paste_formula)

@@ -207,6 +207,145 @@ class SmokeTestMixin:
         self._move_caret(-1)
         assert self.active_slot is first_cell, "left arrow should cross back"
 
+        # ↑/↓：多行结构内部按预先写死的格位表切换到上/下方最近的格位；
+        # 算符没有登记该方向（分式分子按 ↑、顶标、根行）时停在原地。
+        assert self.canvas.bind("<Up>") and self.canvas.bind("<Down>"), (
+            "up/down arrows must be bound on the canvas"
+        )
+        self.clear_formula()
+        self.insert_template("fraction")
+        self._insert_text("a")
+        self._move_selection(1)
+        self._insert_text("b")
+        fraction = self.root_slot.items[1]
+        self._set_active(fraction.denominator, 0, 0)
+        self._move_caret_vertical(-1)
+        assert self.active_slot is fraction.numerator, (
+            "up arrow in the denominator should go to the numerator"
+        )
+        self._move_caret_vertical(1)
+        assert self.active_slot is fraction.denominator, (
+            "down arrow in the numerator should go to the denominator"
+        )
+        self._set_active(fraction.numerator, 0, 0)
+        self._move_caret_vertical(-1)
+        assert self.active_slot is fraction.numerator, (
+            "up arrow above the numerator must stay inside the fraction"
+        )
+
+        self.clear_formula()
+        self.insert_template("sum")
+        for value in ("i=1", "n", "i^2"):
+            self._insert_text(value)
+            self._move_selection(1)
+        sum_node = self.root_slot.items[1]
+        self._set_active(sum_node.lower, 0, 0)
+        self._move_caret_vertical(-1)
+        assert self.active_slot is sum_node.upper, (
+            "up arrow in the lower limit should go to the upper limit"
+        )
+        self._move_caret_vertical(1)
+        assert self.active_slot is sum_node.lower, (
+            "down arrow in the upper limit should go to the lower limit"
+        )
+        self._set_active(sum_node.body, 0, 0)
+        self._move_caret_vertical(-1)
+        assert self.active_slot is sum_node.upper, (
+            "up arrow in the summand should go to the upper limit"
+        )
+        self._move_caret_vertical(1)
+        assert self.active_slot is sum_node.lower, (
+            "down arrow in the summand should go to the lower limit"
+        )
+
+        self.clear_formula()
+        self.insert_template("integral")
+        for value in ("0", "n", "x", "x"):
+            self._insert_text(value)
+            self._move_selection(1)
+        integral = self.root_slot.items[1]
+        self._set_active(integral.lower, 0, 0)
+        self._move_caret_vertical(-1)
+        assert self.active_slot is integral.upper, (
+            "up arrow in the integral lower limit should go to the upper limit"
+        )
+        self._set_active(integral.upper, 0, 0)
+        self._move_caret_vertical(-1)
+        assert self.active_slot is integral.upper, (
+            "up arrow above the integral upper limit must stay put"
+        )
+        self._set_active(integral.var, 0, 0)
+        self._move_caret_vertical(-1)
+        assert self.active_slot is integral.upper, (
+            "up arrow in the integration variable should go to the upper limit"
+        )
+
+        self.clear_formula()
+        self.insert_template("sub_sup")
+        subsup = self.root_slot.items[1]
+        self._set_active(subsup.base, 0, 0)
+        self._move_caret_vertical(-1)
+        assert self.active_slot is subsup.superscript, (
+            "up arrow on the script base should go to the superscript"
+        )
+        self._move_caret_vertical(1)
+        assert self.active_slot is subsup.base, (
+            "down arrow in the superscript should go back to the base"
+        )
+        self._move_caret_vertical(1)
+        assert self.active_slot is subsup.subscript, (
+            "down arrow on the script base should go to the subscript"
+        )
+        self._move_caret_vertical(-1)
+        assert self.active_slot is subsup.base, (
+            "up arrow in the subscript should go back to the base"
+        )
+
+        self.clear_formula()
+        self.insert_template("nth_root")
+        root_node = self.root_slot.items[1]
+        self._set_active(root_node.radicand, 0, 0)
+        self._move_caret_vertical(-1)
+        assert self.active_slot is root_node.index, (
+            "up arrow in the radicand should go to the root index"
+        )
+
+        self.clear_formula()
+        self.insert_matrix(2, 2)
+        matrix = self.root_slot.items[1]
+        self._set_active(matrix.rows[1][0], 0, 0)
+        self._move_caret_vertical(-1)
+        assert self.active_slot is matrix.rows[0][0], (
+            "up arrow in a matrix cell should go to the same column above"
+        )
+        self._move_caret_vertical(-1)
+        assert self.active_slot is matrix.rows[0][0], (
+            "up arrow in the top matrix row must stay put"
+        )
+        self._move_caret_vertical(1)
+        assert self.active_slot is matrix.rows[1][0], (
+            "down arrow in a matrix cell should go to the same column below"
+        )
+
+        self.clear_formula()
+        self.insert_template("hat")
+        hat = self.root_slot.items[1]
+        self._set_active(hat.body, 0, 0)
+        self._move_caret_vertical(-1)
+        self._move_caret_vertical(1)
+        assert self.active_slot is hat.body, (
+            "a single-slot accent has no vertical neighbor"
+        )
+
+        self.clear_formula()
+        self._set_active(self.root_slot, 0, 0)
+        self._move_caret_vertical(-1)
+        self._move_caret_vertical(1)
+        assert self.active_slot is self.root_slot and self.active_index == 0, (
+            "the formula root row has no vertical neighbor"
+        )
+
+
         # 点击文本最右侧应添加一个新的输入位置。
         self.clear_formula()
         self._insert_text("x")

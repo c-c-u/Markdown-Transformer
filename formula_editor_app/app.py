@@ -58,6 +58,7 @@ from .model import (
     text_caret_positions,
     text_offset_from_caret,
     to_markdown,
+    vertical_neighbor,
 )
 from .preview import PreviewMixin
 from .smoke import SmokeTestMixin
@@ -112,7 +113,7 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
         self._set_window_icon()
         self._bind_shortcuts()
 
-        self._set_status("就绪：输入公式，或用按钮插入模板；←/→ 切换输入位置。", "muted")
+        self._set_status("就绪：输入公式，或用按钮插入模板；←/→ 切换输入位置，↑/↓ 在算符内的上下格位间移动。", "muted")
         self._update_canvas_status()
         self._canvas_job = self.root.after(60, self._render_canvas)
         self._output_job = self.root.after(200, self._update_output_preview)
@@ -1101,30 +1102,41 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
         return "break"
 
 
-    def _move_caret(self, step: int) -> str:
-        if self._selection_anchor is not None:
-            # 有选择时方向键先把选择收拢到一端，再继续移动。
-            selection_range, selected = self._selection_state()
-            if selected:
-                first = selected[0]
-                last = selected[-1]
-                if step > 0:
-                    slot, index, offset = last.slot, last.index, (
-                        last.offset[1] if last.offset else 0
-                    )
-                else:
-                    slot, index, offset = first.slot, first.index, (
-                        first.offset[0] if first.offset else 0
-                    )
-                self._collapse_selection()
-                self.active_slot = slot
-                self.active_index = index
-                self.caret = offset
-                self._render_canvas()
-                self._update_canvas_status()
-                self.canvas.focus_set()
-                return "break"
+    def _collapse_selection_to_edge(self, forward: bool) -> bool:
+        """有选择时把选择收拢到远端（``forward``）或近端，返回是否收拢过。
+
+        收拢后返回 True，调用方据此停止这一次移动：与常见编辑器一致，
+        方向键的第一下只负责取消选择。
+        """
+        if self._selection_anchor is None:
+            return False
+        selection_range, selected = self._selection_state()
+        if selected:
+            first = selected[0]
+            last = selected[-1]
+            if forward:
+                slot, index, offset = last.slot, last.index, (
+                    last.offset[1] if last.offset else 0
+                )
+            else:
+                slot, index, offset = first.slot, first.index, (
+                    first.offset[0] if first.offset else 0
+                )
             self._collapse_selection()
+            self.active_slot = slot
+            self.active_index = index
+            self.caret = offset
+            self._render_canvas()
+            self._update_canvas_status()
+            self.canvas.focus_set()
+            return True
+        self._collapse_selection()
+        return False
+
+
+    def _move_caret(self, step: int) -> str:
+        if self._collapse_selection_to_edge(forward=step > 0):
+            return "break"
 
         item = self._active_item()
         if isinstance(item, TextRun) and item.editable:
@@ -1184,6 +1196,54 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
         self._set_active(slot, index, caret)
         self._set_status(f"正在编辑：{slot.role}；←/→ 可继续切换输入位置。", "info")
         return "break"
+
+
+    def _move_caret_vertical(self, direction: int) -> str:
+        """↑ / ↓：在算符内部按预先写死的格位表切到上/下方最近的格位。
+
+        direction=-1 是上，1 是下。只在该格位直接所属的算符里找；算符没有
+        登记这个方向的格位（例如分式分子按 ↑、顶标按 ↓）时停在原地。
+        """
+        if self._collapse_selection_to_edge(forward=direction > 0):
+            return "break"
+        self.canvas.focus_set()
+        if self.active_slot is None:
+            return "break"
+
+        target = vertical_neighbor(
+            self.active_slot,
+            direction,
+            slot_parents(self.root_slot),
+        )
+        if target is None:
+            self._set_status("当前位置所在的结构没有上/下相邻的格位。", "muted")
+            return "break"
+
+        index, caret = self._vertical_target_position(target)
+        self._set_active(target, index, caret)
+        arrow = "上" if direction < 0 else "下"
+        self._set_status(f"已切换到{arrow}方的「{target.role}」；↑/↓ 可继续切换。", "info")
+        return "break"
+
+
+    def _vertical_target_position(self, slot: Slot) -> tuple[int, int]:
+        """在目标格位里选一个和当前下标最接近的可编辑位置。"""
+        items = slot.items
+        if not items:
+            return 0, 0
+        wanted = max(0, min(self.active_index, len(items) - 1))
+        editable = [
+            position
+            for position, item in enumerate(items)
+            if is_editable_input(item)
+        ]
+        if not editable:
+            return wanted, 0
+        index = min(editable, key=lambda position: (abs(position - wanted), position))
+        item = items[index]
+        if isinstance(item, TextRun) and item.editable:
+            return index, max(0, min(self.caret, len(item.text)))
+        return index, 0
 
 
     def _move_selection(self, direction: int) -> str:

@@ -457,6 +457,107 @@ def slot_parents(root: Slot) -> dict[int, tuple[Slot, int]]:
     return parents
 
 
+# -- 上下方向键：算符内部预先写死的格位上下关系 -------------------------------
+
+
+def vertical_slot_neighbors(
+    node: Element,
+) -> dict[int, tuple[Optional[Slot], Optional[Slot]]]:
+    """算符内部各格位的「上/下相邻格位」表。
+
+    这张表是**预先写死**的：每个多行算符的每个格位都显式登记按 ↑ / ↓
+    能去的格位，``None`` 表示该方向没有格位。移动结果只看这张表，不看
+    画布上的实际坐标，因此与字号、行高以及格位里填了多少内容都无关。
+
+    键是子槽位的 ``id()``，值是 ``(上方格位, 下方格位)``。只有多行结构
+    登记：求和的上下限与求和项、积分的上下限与被积函数/积分变量、分子
+    分母、角标底数与上/下标、n 次根的根指数、矩阵同一列的相邻行；顶标
+    和平方根只有一个格位，返回空表。
+
+    新增结构时在这里补一条即可（只登记需要 ↑ / ↓ 的格位）。
+    """
+    if isinstance(node, SumNode):
+        # ∑ 的上下限叠在上方和下方，求和项在右侧同一行。
+        return {
+            id(node.lower): (node.upper, None),
+            id(node.upper): (None, node.lower),
+            id(node.body): (node.upper, node.lower),
+        }
+    if isinstance(node, IntegralNode):
+        # 被积函数和积分变量在主线上，向上/向下回到上下限。
+        return {
+            id(node.lower): (node.upper, None),
+            id(node.upper): (None, node.lower),
+            id(node.body): (node.upper, node.lower),
+            id(node.var): (node.upper, node.lower),
+        }
+    if isinstance(node, FractionNode):
+        return {
+            id(node.numerator): (None, node.denominator),
+            id(node.denominator): (node.numerator, None),
+        }
+    if isinstance(node, SuperscriptNode):
+        return {
+            id(node.base): (node.exponent, None),
+            id(node.exponent): (None, node.base),
+        }
+    if isinstance(node, SubscriptNode):
+        return {
+            id(node.base): (None, node.subscript),
+            id(node.subscript): (node.base, None),
+        }
+    if isinstance(node, SubSuperscriptNode):
+        return {
+            id(node.base): (node.superscript, node.subscript),
+            id(node.subscript): (node.base, None),
+            id(node.superscript): (None, node.base),
+        }
+    if isinstance(node, RootNode) and node.index is not None:
+        return {
+            id(node.radicand): (node.index, None),
+            id(node.index): (None, node.radicand),
+        }
+    if isinstance(node, MatrixNode):
+        table: dict[int, tuple[Optional[Slot], Optional[Slot]]] = {}
+        for row_index, row in enumerate(node.rows):
+            for col_index, cell in enumerate(row):
+                above = None
+                below = None
+                if row_index > 0 and col_index < len(node.rows[row_index - 1]):
+                    above = node.rows[row_index - 1][col_index]
+                if (
+                    row_index + 1 < len(node.rows)
+                    and col_index < len(node.rows[row_index + 1])
+                ):
+                    below = node.rows[row_index + 1][col_index]
+                table[id(cell)] = (above, below)
+        return table
+    return {}
+
+
+def vertical_neighbor(
+    slot: Slot,
+    direction: int,
+    parents: dict[int, tuple[Slot, int]],
+) -> Optional[Slot]:
+    """按 ↑（``direction < 0``）/ ↓（``direction > 0``）取该格位的上下相邻格位。
+
+    只查该格位**直接所属**的算符：算符内部没有登记这个方向时返回 None，
+    不会继续向外层结构里找，也不会退回到普通的阅读顺序切换。
+    """
+    info = parents.get(id(slot))
+    if info is None:
+        return None
+    parent_slot, node_index = info
+    if not (0 <= node_index < len(parent_slot.items)):
+        return None
+    node = parent_slot.items[node_index]
+    if not is_structure_item(node):
+        return None
+    above, below = vertical_slot_neighbors(node).get(id(slot), (None, None))
+    return above if direction < 0 else below
+
+
 def iter_selectable_segments(root: Slot):
     """按阅读顺序给出可被选中的元素：可编辑文本、结构。
 
