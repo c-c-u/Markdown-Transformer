@@ -13,32 +13,19 @@ from PIL import Image, ImageDraw, ImageFont, ImageTk
 from .config import (
     ACCENT,
     ACCENT_DARK,
-    APP_TITLE,
-    AUTO_FIT_SIZES,
-    BASE_FONT_SIZE,
     BG,
     BORDER,
     CANVAS_BG,
-    CANVAS_PADDING,
     CARD,
-    DANGER,
     EDITOR_BG,
-    ITEM_GAP,
-    MAX_CANVAS_HEIGHT,
     MIN_CANVAS_HEIGHT,
     MUTED,
-    PLACEHOLDER,
-    PLACEHOLDER_FILL,
-    PLACEHOLDER_OUTLINE,
     PREVIEW_BG,
     PRIMARY_SYMBOLS,
     SOFT_ACCENT,
-    SUCCESS,
     SYMBOL_GROUPS,
     TEMPLATE_GROUPS,
-    TEMPLATE_LABELS,
     TEXT,
-    WARNING,
 )
 
 
@@ -447,7 +434,7 @@ class UIBuilderMixin:
         items,
         style: str = "Tool.TMenubutton",
         padx: tuple[int, int] = (0, 7),
-        menu_font: Optional[tuple] = None,
+        menu_font: tuple | None = None,
     ) -> ttk.Menubutton:
         menu = tk.Menu(parent, tearoff=0, font=menu_font or (self.ui_font, 10))
         for label, command in items:

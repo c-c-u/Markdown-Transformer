@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import io
 import tkinter as tk
-from typing import Optional
 
 import matplotlib
 
@@ -13,8 +12,7 @@ from matplotlib import rcParams
 from matplotlib.figure import Figure
 from PIL import Image, ImageTk
 
-from .config import MUTED, PREVIEW_BG, TEXT
-from .layout import Layout
+from .config import MUTED, PREVIEW_BG, PREVIEW_FIT_SIZES, TEXT
 from .model import (
     contains_matrix,
     count_placeholders,
@@ -58,6 +56,22 @@ class PreviewMixin:
         return image
 
 
+    def _reset_output_preview(
+        self,
+        *,
+        error: str = "",
+        custom: bool = False,
+        message: str | None = None,
+    ) -> None:
+        """统一清掉上一次的预览状态；``message`` 为 None 时保留现有提示文字。"""
+        self._output_preview_error = error
+        self._output_preview_custom = custom
+        self._output_preview_pil = None
+        self._output_preview_photo = None
+        if message is not None:
+            self._output_preview_message = message
+
+
     def _draw_output_preview_custom(self) -> None:
         """mathtext 不支持矩阵环境，矩阵公式改用画布布局直接绘制预览。"""
         self._output_resize_job = None
@@ -70,28 +84,17 @@ class PreviewMixin:
             self._output_resize_job = self.root.after(50, self._draw_output_preview_custom)
             return
 
-        avail_w = width - 24
-        avail_h = height - 18
-        layout: Optional[Layout] = None
-        chosen_size = 8
+        # 预览区不显示光标，布局时把活动位置临时摘掉。
         saved_active_slot = self.active_slot
         saved_active_index = self.active_index
         self.active_slot = None
         try:
-            for candidate in (24, 22, 20, 18, 16, 14, 12, 10, 8):
-                candidate_layout = self._layout_slot(
-                    self.root_slot, 0.0, 0.0, float(candidate)
-                )
-                if (
-                    candidate_layout.width <= avail_w
-                    and candidate_layout.ascent + candidate_layout.descent <= avail_h
-                ):
-                    layout = candidate_layout
-                    chosen_size = candidate
-                    break
-            if layout is None:
-                chosen_size = 8
-                layout = self._layout_slot(self.root_slot, 0.0, 0.0, float(chosen_size))
+            layout, _size = self._fit_layout(
+                self.root_slot,
+                width - 24,
+                height - 18,
+                PREVIEW_FIT_SIZES,
+            )
         finally:
             self.active_slot = saved_active_slot
             self.active_index = saved_active_index
@@ -170,46 +173,34 @@ class PreviewMixin:
         latex = normalize_formula(serialize_slot(self.root_slot))
 
         if placeholders:
-            self._output_preview_error = ""
-            self._output_preview_custom = False
-            self._output_preview_pil = None
-            self._output_preview_photo = None
-            self._output_preview_message = (
-                f"还有 {placeholders} 个方框未填写\n完成全部方框后显示实时预览"
+            self._reset_output_preview(
+                message=f"还有 {placeholders} 个方框未填写\n完成全部方框后显示实时预览"
             )
             self._draw_output_preview_message()
             return
 
         if not latex:
-            self._output_preview_error = ""
-            self._output_preview_custom = False
-            self._output_preview_pil = None
-            self._output_preview_photo = None
-            self._output_preview_message = "填写公式后\n这里显示渲染预览"
+            self._reset_output_preview(message="填写公式后\n这里显示渲染预览")
             self._draw_output_preview_message()
             return
 
         if contains_matrix(self.root_slot):
-            self._output_preview_error = ""
-            self._output_preview_custom = True
-            self._output_preview_pil = None
-            self._output_preview_photo = None
+            self._reset_output_preview(custom=True)
             self._draw_output_preview_custom()
             return
 
         try:
             image = self._render_latex_image(latex)
         except Exception as exc:
-            self._output_preview_error = format_preview_error(exc)
-            self._output_preview_custom = False
-            self._output_preview_pil = None
-            self._output_preview_photo = None
-            self._output_preview_message = "渲染预览失败\n" + self._output_preview_error
+            error = format_preview_error(exc)
+            self._reset_output_preview(
+                error=error,
+                message="渲染预览失败\n" + error,
+            )
             self._draw_output_preview_message()
             return
 
-        self._output_preview_error = ""
-        self._output_preview_custom = False
+        self._reset_output_preview()
         self._output_preview_pil = image
         self._display_output_preview_image()
 

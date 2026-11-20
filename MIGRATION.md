@@ -1,8 +1,8 @@
 # 公式编辑器 · 网页版迁移方案
 
-> 状态：方案分析（未改动任何现有代码）
+> 状态：**已按本方案完成实现**（2026-11）
 > 目标读者：本项目维护者
-> 结论摘要：可行性高；推荐"路线 A：Pyodide 保留 Python 逻辑，换掉 Tk 外壳"；预估 5 人日，另需 0.5 天字体探针先行验证。
+> 实现结论：走的是「单文件 HTML + JS 重写」路线（对应 §3 路线 B，而不是最初推荐的 Pyodide 路线 A），原因见 §9 更新。成品在 `web/formula_editor.html`，双击即可用；`web/src/` 是分模块源码，`node web/build.mjs` 内联生成单文件。验证：`node web/parity_test.js`（与 `smoke.py` 等价的逻辑断言）+ `node web/dom_test.js`（界面装配冒烟）全部通过。
 
 ---
 
@@ -387,3 +387,34 @@ Tk 里靠 `canvas.focus_set()` 抢键盘焦点；web 里键盘事件挂在 `wind
 2. 网页版是否需要"打开即带一个示例公式"（默认填好求和示例）？
 3. 是否需要在网页版保留"矩阵自绘预览"作为 KaTeX 失败时的兜底（会增加少量代码）？
 4. 部署位置：GitHub Pages / 内网静态服务器 / 本机双击打开（后者受剪贴板安全上下文限制）。
+
+---
+
+## 12. 实现记录（已完成）
+
+**最终路线：路线 B（单文件 HTML + JS 重写），而不是最初推荐的路线 A（Pyodide）。** 原因：
+用户要求"双击打开、不建立网站"，而浏览器在 `file://` 下禁止 `fetch()` 本地文件，Pyodide 无法从本地加载
+`.wasm`；走 CDN 又必须联网。JS 重写反而把两点高风险直接消掉：字体用系统 Cambria / Segoe UI Symbol，
+与桌面版完全一致，布局常数不用标定；`ctx.measureText` 是本地调用，没有跨语言开销。
+
+**交付物**：
+
+| 路径 | 说明 |
+| --- | --- |
+| `web/formula_editor.html` | 单文件成品，双击打开，离线可用（KaTeX 缺省时回退源码） |
+| `web/src/config.js` … `ui.js` | 分模块源码，与 Python 版一一对应，函数名保持一致 |
+| `web/index.template.html` | 页面骨架与样式，`build.mjs` 把 JS 内联进去 |
+| `web/build.mjs` | 构建：`node web/build.mjs` |
+| `web/parity_test.js` | 把 `smoke.py` 的全部分组断言移植到 Node：31 项检查 |
+| `web/dom_test.js` | 假 DOM 执行 `bootUI()`，验证工具栏/菜单/画布事件/复制装配 |
+
+**与桌面版的差异**：
+- 预览：桌面版 mathtext + 矩阵自绘；网页版统一用 KaTeX，矩阵直接渲染（`pmatrix` 受支持），离线回退源码。
+- 剪贴板：`navigator.clipboard` 优先，失败回退 `execCommand('copy')`（`file://` 下更稳）。
+- 中文输入：监听 `compositionstart/compositionend`，合成结束后整段插入。
+- 画布尺寸：`window.innerHeight` 替代窗口高度，`devicePixelRatio` 缩放；布局坐标体系不变。
+- 未迁移：桌面窗口图标、环境信息栏、Tk 主题等纯桌面装饰。
+
+**尚未验证**：真实浏览器里的视觉走查（本机 Edge 无头模式启动失败，退出码 13/状态断点），
+建议双击打开后逐项过一遍按钮、拖选、缩放；若字形间距需要微调，调整 `layout.js` 里与
+`layout.py` 对应的常数即可。

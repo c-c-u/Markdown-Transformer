@@ -3,12 +3,14 @@
 ## 项目
 
 公式编辑器：Python 3.12 + Tkinter 自绘画布，可以进行 Markdown编码 和 **交互式公式编辑** 转化实时预览。
-入口：`formula_editor.py`；主代码在 `formula_editor_app/`（web_single/ 是迁移原型，mre_repo/ 是复现，勿混淆）。
+入口：`formula_editor.py`；主代码在 `formula_editor_app/`（`web/` 是完整网页版，`web_single/` 是早期迁移原型，`mre_repo/` 是复现，勿混淆）。
 
 ## 命令
 
 - 启动：运行 `formula_editor.py`
 - 冒烟测试：加上 `--smoke-test`
+- 网页版构建：`node web/build.mjs`（生成 `web/formula_editor.html`，单文件、双击打开）
+- 网页版测试：`node web/parity_test.js`（逻辑与 `smoke.py` 等价）、`node web/dom_test.js`（界面装配冒烟）
 
 ## 硬性约束
 
@@ -30,6 +32,7 @@
 - 文本内部按回格 / Delete 只删一个字符。光标在文本边界处按 `←` / `→` 会先进入同一行里紧挨着的相邻结构，不会跳过结构跑到别的方框里。
 - 删除后若出现连续隐藏空位，会自动收缩为单个输入位置；结构内部的必填方框不受影响。
 - 鼠标拖动选择以画布上可见的**内容**为单位：已填写文本、整个结构。结构在拖动时以整体出现，因此拖到算符上会连同其内部内容一起选中；矩阵单元格按单元格矩形选中。选中后输入会替换选中内容，`Backspace` / `Delete` 会删除选中内容，`←` / `→` 会把光标收拢到一端。
+- 拖选的焦点判定分两层：指针还在锚点文字所在这一行的纵向范围里时，锚点所在格位的**外层结构**不参与焦点判定（`app.py` 的 `_anchor_row_exclusions()`），所以在 `dx^2/dx` 的分子里拖选只会选中 `x^2`，不会顺带选到分母的 `x`；指针离开这一行后再拖到算符上，仍然整体选中该结构（冒烟测试与网页版 parity 测试都断言了这两种行为）。网页版 `controller.js` 的同名方法与之对应。
 - 空方框（结构规定的必填位置）和隐藏空位不是内容：它们不能作为拖选起点，也不会被拖选删除；删除选择时只会删掉文字和结构，结构被删时它的方框随结构一起消失。拖动过程中鼠标停在空方框上时，选择不会扩展到它所属的结构。
 - 选中的方框和结构内部方框都改用选中底色绘制，不会被方框本身的颜色盖住；**光标停在被选中的方框里时也保持选中底色**，只用双线边框标示“正在编辑”。在已选中的内容里按下鼠标会先收拢选择，再开始新的拖选。
 - 结构左右两侧的隐藏位置会自动生成；若该侧已有可编辑文本或方框则直接复用，不重复生成。用 `←` / `→` 可在结构内部位置和相邻隐藏位置之间切换。
@@ -37,11 +40,26 @@
 - 矩阵和向量插入后尺寸固定，可先在菜单中选好尺寸；单元格内可以继续嵌套结构。
 - Markdown 输出为多行公式；如果目标平台只支持行内，可以后续增加输出格式切换。
 
+## 代码结构
+
+- 按槽位递归的遍历（方框统计、`Tab` / 方向键切换、首格定位、选择范围）统一由 `model.py` 的 `child_slots()` 驱动：新增结构只登记一次，`iter_placeholders` / `iter_targets` / `first_placeholder_in_node` 会自动生效，不用再改遍历代码。
+- 结构的画布布局由 `layout.py` 顶部的 `_STRUCTURE_LAYOUT`（结构类型 → `_layout_*` 方法名）分派，新增结构在那里补一条并写对应 `_layout_*` 方法。
+- 主画布和矩阵预览共用 `LayoutEngine._fit_layout()` 自动缩放；字号序列分别是 `config.AUTO_FIT_SIZES` 与 `config.PREVIEW_FIT_SIZES`。
+
+## 网页版（web/）
+
+- 网页版是**完整移植**，不是只读预览：`web/src/` 按 `config.js` / `model.js` / `layout.js` / `controller.js` / `ui.js` 对应桌面版分层，函数名与 Python 保持一致，方便两边对照。
+- `node web/build.mjs` 把 `web/src/*.js` 内联进 `web/index.template.html`，生成单文件 `web/formula_editor.html`；这个产物才是交付物，双击即可用，不需要服务器。
+- 画布字体仍用系统字体 Cambria + Segoe UI Symbol，`layout.js` 的常量与 `layout.py` 一一对应；改布局时两边要一起改。
+- 预览用 KaTeX（CDN 加载，离线时回退显示 LaTeX 源码）；桌面版矩阵预览的自绘分支在网页版不需要，矩阵直接交给 KaTeX。
+- 网页版没有 matplotlib mathtext 的限制，但行为要对齐桌面版：修改 `model.py` / `app.py` 的编辑规则后，必须同步 `web/src/model.js` / `controller.js`，并跑 `parity_test.js` 验证。
+
 ## 修改新功能时要动的所有位置
-（引用 README §「添加新功能时的修改位置」：新结构 6 处（多行结构再补 `vertical_slot_neighbors()` 1 处）、新符号 2 处、新顶标 4 处）
+（引用 README §「添加新功能时的修改位置」：新符号 2 处、新顶标 4 处）
+新结构要动：`model.py`（节点 dataclass + `Element` 联合 + `child_slots()` + 工厂与 `make_template` + `serialize_item()`，多行结构再补 `vertical_slot_neighbors()`）、`layout.py`（`_STRUCTURE_LAYOUT` 分派表 + `_layout_*`）、`config.py`（`TEMPLATE_LABELS` 与面板分组）、`ui.py`（按钮 / 菜单入口）。
 
 ## 文档同步
 改AI需要知晓的内容后更新此文档；README 只保留面向用户的操作说明与示例。中文 UTF-8。
 
 ## 验收
-冒烟测试 PASS + 新增符号有 SYMBOL_LATEX 映射且 mathtext 可渲染。
+冒烟测试 PASS + 新增符号有 SYMBOL_LATEX 映射且 mathtext 可渲染。冒烟测试按功能分组（`smoke.py` 的 `_smoke_*` 方法），新功能在对应分组里补断言，失败时方法名直接指出能力范围。

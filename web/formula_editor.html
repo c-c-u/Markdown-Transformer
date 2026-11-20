@@ -1,0 +1,3714 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>公式编辑器 · Markdown 实时输出</title>
+<style>
+  :root{
+    --bg:#f3f5fb; --card:#ffffff; --border:#dfe4f1; --text:#1f2937; --muted:#6b7280;
+    --accent:#4f46e5; --accent-dark:#4338ca; --success:#15803d; --warning:#b45309;
+    --soft-accent:#eef2ff; --canvas-bg:#fcfcff; --preview-bg:#fcfcff; --editor-bg:#fbfcff;
+    --ph-fill:#fff7dd; --ph-outline:#d99a2b; --selection-fill:#dbe2fe;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);color:var(--text);
+    font-family:"Microsoft YaHei UI","Microsoft YaHei","Segoe UI",system-ui,sans-serif;
+    font-size:14px;padding:20px 22px 26px;
+  }
+  .app{max-width:1220px;margin:0 auto;display:flex;flex-direction:column;gap:12px}
+  header{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+  header h1{font-size:21px;margin:0 0 3px;font-weight:700}
+  header .sub{color:var(--muted);margin:0;font-size:13px}
+  .badge{
+    background:var(--soft-accent);color:var(--accent);font-size:12px;font-weight:700;
+    padding:7px 13px;border-radius:8px;white-space:nowrap;
+  }
+  .card{background:var(--card);border:1px solid var(--border);border-radius:10px}
+  .card-head{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:13px 18px 0;flex-wrap:wrap}
+  .card-title{font-weight:700;font-size:13px}
+  .muted{color:var(--muted);font-size:12px}
+  .toolbar,.symbols,.categories{display:flex;flex-direction:column;gap:8px;padding:10px 18px 2px}
+  .toolbar{padding-bottom:4px}
+  .row{display:flex;flex-wrap:wrap;align-items:center;gap:6px}
+  .row-label{color:var(--muted);font-size:12px;margin-right:4px}
+  .sep{width:1px;height:20px;background:var(--border);margin:0 5px}
+  button{
+    border:1px solid var(--border);background:#f8faff;color:var(--text);border-radius:7px;
+    padding:6px 10px;cursor:pointer;font-size:13px;font-family:inherit;line-height:1.2;
+  }
+  button:hover{background:var(--soft-accent);border-color:#c7d2fe;color:var(--accent)}
+  button:active{background:#e6e9f5}
+  button:disabled{opacity:.5;cursor:default;color:var(--muted)}
+  .symbol-btn{font-family:"Segoe UI Symbol","Cambria Math",Arial,sans-serif;font-size:13px;padding:5px 8px;background:#fbfcff}
+  .ghost-btn{background:transparent;border-color:transparent;color:var(--muted);padding:6px 9px}
+  .ghost-btn:hover{background:var(--soft-accent)}
+  .dropdown{position:relative;display:inline-block}
+  .dropdown > button.open{background:var(--soft-accent);border-color:#c7d2fe;color:var(--accent)}
+  .dropdown-panel{
+    position:absolute;top:calc(100% + 4px);left:0;z-index:40;
+    background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 10px 28px rgba(15,23,42,.12);
+    padding:5px;display:flex;flex-direction:column;gap:2px;min-width:150px;max-width:320px;
+    max-height:340px;overflow:auto;
+  }
+  .dropdown-panel[hidden]{display:none}
+  .submenu{display:flex;flex-direction:column}
+  .submenu-list{display:flex;flex-direction:column;gap:2px;padding-left:12px;border-left:2px solid var(--border);margin-left:4px}
+  .submenu-list[hidden]{display:none}
+  .dropdown-panel.nested{top:0;left:calc(100% + 4px)}
+  .menu-item{
+    text-align:left;border:0;background:transparent;padding:6px 10px;border-radius:6px;
+    white-space:nowrap;font-size:13px;
+  }
+  .menu-item:hover{background:var(--soft-accent);color:var(--accent)}
+  .menu-item.sub{color:var(--text)}
+  .menu-item.glyph{font-family:"Segoe UI Symbol","Cambria Math",Arial,sans-serif;font-size:15px}
+  .submenu{position:relative}
+  .canvas-shell{background:var(--border);border-radius:8px;margin:8px 18px 0;padding:1px}
+  canvas{
+    display:block;width:100%;min-height:120px;background:var(--canvas-bg);
+    border-radius:7px;outline:none;cursor:text;
+  }
+  .canvas-footer{display:flex;justify-content:space-between;gap:12px;padding:8px 18px 12px;font-size:12px;color:var(--muted)}
+  .canvas-footer .hint{color:#9ca3af;white-space:nowrap}
+  .action-row{display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap}
+  .action-row .copy-note{color:var(--muted);font-size:13px}
+  .primary-btn{
+    border:0;background:var(--accent);color:#fff;font-weight:700;
+    padding:11px 22px;border-radius:8px;font-size:14px;
+  }
+  .primary-btn:hover{background:var(--accent-dark);color:#fff}
+  .primary-btn:disabled{background:#c7d2fe;color:#fff;cursor:default}
+  .output-grid{display:grid;grid-template-columns:3fr 2fr;gap:12px;padding:10px 18px 16px}
+  @media (max-width:900px){.output-grid{grid-template-columns:1fr}}
+  .pane{background:var(--editor-bg);border:1px solid var(--border);border-radius:8px;padding:10px;min-height:140px}
+  .pane-head{color:var(--muted);font-size:12px;margin-bottom:6px}
+  pre#markdown{
+    margin:0;font-family:"Cascadia Code",Consolas,"Courier New",monospace;font-size:13px;
+    white-space:pre-wrap;word-break:break-word;min-height:110px;color:#111827;
+  }
+  #preview{
+    display:flex;flex-direction:column;align-items:center;justify-content:center;
+    min-height:110px;text-align:center;gap:6px;
+  }
+  .preview-msg{color:var(--muted);font-size:12.5px;line-height:1.7;white-space:pre-line}
+  .preview-fallback{margin:0;text-align:left;font-size:13px;color:#334155;white-space:pre-wrap;max-width:100%;overflow:auto}
+  .status-bar{display:flex;justify-content:space-between;gap:12px;font-size:12px;color:#9ca3af;padding:0 4px}
+  .status-text.muted{color:var(--muted)}
+  .status-text.info{color:var(--text)}
+  .status-text.success{color:var(--success)}
+  .status-text.warning{color:var(--warning)}
+  .status-text.danger{color:#b91c1c}
+  #toast{
+    position:fixed;left:50%;top:18px;transform:translateX(-50%) translateY(-12px);
+    background:#111827;color:#fff;padding:10px 16px;border-radius:8px;font-size:13px;
+    opacity:0;pointer-events:none;transition:all .18s ease;max-width:min(640px,90vw);
+    white-space:pre-line;z-index:80;box-shadow:0 10px 30px rgba(15,23,42,.25);
+  }
+  #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>公式编辑器</h1>
+      <p class="sub">点击方框直接输入 · 插入模板 · Markdown 源码与预览</p>
+    </div>
+    <span class="badge">可视化编辑 → Markdown</span>
+  </header>
+
+  <section class="card">
+    <div class="card-head">
+      <span class="card-title">公式编辑 · 实时预览</span>
+      <span class="muted">点击文本边缘/算符两侧添加项；拖动可选中内容；←/→ 切换输入位置，↑/↓ 切换上下格位</span>
+    </div>
+    <div class="toolbar" id="toolbar"></div>
+    <div class="symbols" id="symbols"></div>
+    <div class="categories" id="categories"></div>
+    <div class="canvas-shell"><canvas id="canvas" tabindex="0"></canvas></div>
+    <div class="canvas-footer">
+      <span id="canvas-status"></span>
+      <span class="hint">拖动鼠标可选中一段内容 · Enter 复制</span>
+    </div>
+  </section>
+
+  <section class="action-row">
+    <span class="copy-note">Markdown 源码与渲染预览会随公式实时更新；填满所有方框后即可复制。</span>
+    <button id="copy" class="primary-btn" disabled>复制 Markdown</button>
+  </section>
+
+  <section class="card">
+    <div class="card-head">
+      <span class="card-title">Markdown 输出</span>
+      <span class="muted">源码与预览实时同步</span>
+    </div>
+    <div class="output-grid">
+      <div class="pane">
+        <div class="pane-head">Markdown 源码</div>
+        <pre id="markdown"></pre>
+      </div>
+      <div class="pane">
+        <div class="pane-head">实时预览</div>
+        <div id="preview"></div>
+      </div>
+    </div>
+  </section>
+
+  <div class="status-bar">
+    <span class="status-text muted" id="status"></span>
+    <span>单文件网页版 · 无需安装</span>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ===== config.js =====
+/* 全局常量、主题色、符号表和模板名称（对应 formula_editor_app/config.py）。 */
+'use strict';
+
+const APP_TITLE = '公式编辑器 · Markdown 实时输出';
+const PLACEHOLDER = '□';
+
+const TEMPLATE_LABELS = {
+  sum: '求和',
+  integral: '积分',
+  derivative: '微分',
+  fraction: '分式',
+  power: '上角标',
+  subscript: '下角标',
+  sub_sup: '上下角标',
+  hat: '帽子',
+  widehat: '宽帽子',
+  bar: '横线',
+  overline: '上划线',
+  tilde: '波浪',
+  widetilde: '宽波浪',
+  dot: '单点',
+  ddot: '双点',
+  vec: '矢量',
+  sqrt: '开方',
+  nth_root: 'n 次根',
+};
+
+// 顶标：结构内部的内容上方加一个标记，导出为对应的 LaTeX 命令。
+const ACCENT_LATEX = {
+  hat: '\\hat',
+  widehat: '\\widehat',
+  bar: '\\bar',
+  overline: '\\overline',
+  tilde: '\\tilde',
+  widetilde: '\\widetilde',
+  dot: '\\dot',
+  ddot: '\\ddot',
+  vec: '\\vec',
+};
+
+// 单符号运算符：画布显示 Unicode 字形，导出时替换为对应的 LaTeX 命令。
+// LaTeX 命令一律带尾随空格，避免与后面的字母粘成一个未知命令。
+const SYMBOL_LATEX = {
+  // -- 基本运算：四则运算与比较 -----------------------------------------
+  '·': '\\cdot ',
+  '×': '\\times ',
+  '÷': '\\div ',
+  '±': '\\pm ',
+  '∓': '\\mp ',
+  '≤': '\\leq ',
+  '≥': '\\geq ',
+  '≠': '\\neq ',
+  '≈': '\\approx ',
+  '≡': '\\equiv ',
+  '∝': '\\propto ',
+  '≅': '\\cong ',
+  '≪': '\\ll ',
+  '≫': '\\gg ',
+  '∘': '\\circ ',
+  '⊥': '\\perp ',
+  '∥': '\\parallel ',
+  // -- 集合 -------------------------------------------------------------
+  '∈': '\\in ',
+  '∉': '\\notin ',
+  '∋': '\\ni ',
+  '⊂': '\\subset ',
+  '⊆': '\\subseteq ',
+  '⊄': '\\not\\subset ',
+  '⊊': '\\subsetneq ',
+  '⊃': '\\supset ',
+  '⊇': '\\supseteq ',
+  '∪': '\\cup ',
+  '∩': '\\cap ',
+  '∖': '\\setminus ',
+  '∅': '\\emptyset ',
+  'ℕ': '\\mathbb{N}',
+  'ℤ': '\\mathbb{Z}',
+  'ℚ': '\\mathbb{Q}',
+  'ℝ': '\\mathbb{R}',
+  'ℂ': '\\mathbb{C}',
+  // -- 微积分 -----------------------------------------------------------
+  '∫': '\\int ',
+  '∬': '\\iint ',
+  '∭': '\\iiint ',
+  '∮': '\\oint ',
+  '∂': '\\partial ',
+  '∇': '\\nabla ',
+  '∞': '\\infty ',
+  'Δ': '\\Delta ',
+  '′': '^{\\prime}',
+  '″': '^{\\prime\\prime}',
+  // -- 逻辑与箭头 -------------------------------------------------------
+  '∧': '\\wedge ',
+  '∨': '\\vee ',
+  '¬': '\\neg ',
+  '∀': '\\forall ',
+  '∃': '\\exists ',
+  '∴': '\\therefore ',
+  '∵': '\\because ',
+  '→': '\\to ',
+  '←': '\\leftarrow ',
+  '↔': '\\leftrightarrow ',
+  '⇒': '\\Rightarrow ',
+  '⇐': '\\Leftarrow ',
+  '⇔': '\\Leftrightarrow ',
+  // -- 变量符号：希腊字母 ----------------------------------------------
+  'α': '\\alpha ',
+  'β': '\\beta ',
+  'γ': '\\gamma ',
+  'δ': '\\delta ',
+  'ε': '\\varepsilon ',
+  'ζ': '\\zeta ',
+  'η': '\\eta ',
+  'θ': '\\theta ',
+  'ι': '\\iota ',
+  'κ': '\\kappa ',
+  'λ': '\\lambda ',
+  'μ': '\\mu ',
+  'ν': '\\nu ',
+  'ξ': '\\xi ',
+  'π': '\\pi ',
+  'ρ': '\\rho ',
+  'σ': '\\sigma ',
+  'τ': '\\tau ',
+  'υ': '\\upsilon ',
+  'φ': '\\phi ',
+  'χ': '\\chi ',
+  'ψ': '\\psi ',
+  'ω': '\\omega ',
+  'Γ': '\\Gamma ',
+  'Θ': '\\Theta ',
+  'Λ': '\\Lambda ',
+  'Ξ': '\\Xi ',
+  'Π': '\\Pi ',
+  'Σ': '\\Sigma ',
+  'Υ': '\\Upsilon ',
+  'Φ': '\\Phi ',
+  'Ψ': '\\Psi ',
+  'Ω': '\\Omega ',
+};
+
+// 数集符号（字母类字形，但按正体符号绘制）。
+const NUMBER_SET_SYMBOLS = ['ℕ', 'ℤ', 'ℚ', 'ℝ', 'ℂ'];
+
+// 画布上用「符号字体」正体绘制的字符：非字母类符号 + 数集字母。
+// 拉丁字母、希腊字母仍然使用数学字体，小写字母按变量斜体排版。
+const SYMBOL_FONT_CHARS = new Set(
+  Object.keys(SYMBOL_LATEX)
+    .filter((char) => !/\p{L}/u.test(char))
+    .concat(NUMBER_SET_SYMBOLS),
+);
+
+// 四则运算等单行算符按「字符」处理：它们不携带结构位置，也不参与自动拆分；
+// 删除时作为普通字符删掉，不会连带删除相邻的结构。
+// 由符号表中所有非字母符号自动汇总，再补上 ASCII 四则运算字符。
+const PLAIN_OPERATOR_CHARS = new Set(
+  '+-*/=<>'.split('').concat(
+    Object.keys(SYMBOL_LATEX).filter((char) => !/\p{L}/u.test(char)),
+  ),
+);
+
+const PRIMARY_SYMBOLS = ['·', '×', '±', '∓', '≤', '≥', '≠', '∞', '∂', '∇'];
+
+// 「更多符号」面板按类别拆分成多个下拉菜单。
+// 每一项是 [菜单名, 条目数组]；条目既可以是单个符号，也可以是
+// [子菜单名, 条目数组]，用于把较长的分类（如希腊字母）收进级联菜单。
+const SYMBOL_GROUPS = [
+  [
+    '基本运算',
+    ['+', '-', '*', '/', '=', '<', '>', '≠', '≤', '≥', '≈', '≡', '∝', '×', '÷', '·', '±', '∓', '≅', '≪', '≫', '∘'],
+  ],
+  [
+    '集合',
+    ['∈', '∉', '∋', '⊂', '⊆', '⊄', '⊊', '⊃', '⊇', '∪', '∩', '∖', '∅'].concat(NUMBER_SET_SYMBOLS),
+  ],
+  [
+    '微积分',
+    ['∫', '∬', '∭', '∮', '∂', '∇', '∞', 'Δ', '′', '″'],
+  ],
+  [
+    '变量',
+    [
+      ['希腊字母（小写）', ['α', 'β', 'γ', 'δ', 'ε', 'ζ', 'η', 'θ', 'ι', 'κ', 'λ', 'μ', 'ν', 'ξ', 'π', 'ρ', 'σ', 'τ', 'υ', 'φ', 'χ', 'ψ', 'ω']],
+      ['希腊字母（大写）', ['Γ', 'Δ', 'Θ', 'Λ', 'Ξ', 'Π', 'Σ', 'Υ', 'Φ', 'Ψ', 'Ω']],
+    ],
+  ],
+  [
+    '逻辑与箭头',
+    ['∧', '∨', '¬', '∀', '∃', '∴', '∵', '→', '←', '↔', '⇒', '⇐', '⇔', '⊥', '∥'],
+  ],
+];
+
+// 「更多符号」里的结构分类：菜单项是 [显示名, 模板键]，点击后插入对应结构。
+const TEMPLATE_GROUPS = [
+  [
+    '角标',
+    [
+      ['上角标（乘方）  x^n', 'power'],
+      ['下角标  x_n', 'subscript'],
+      ['上下角标  x_n^m', 'sub_sup'],
+    ],
+  ],
+  [
+    '顶标',
+    [
+      ['帽子（hat）', 'hat'],
+      ['宽帽子（widehat）', 'widehat'],
+      ['横线（bar）', 'bar'],
+      ['上划线（overline）', 'overline'],
+      ['波浪（tilde）', 'tilde'],
+      ['宽波浪（widetilde）', 'widetilde'],
+      ['单点（dot）', 'dot'],
+      ['双点（ddot）', 'ddot'],
+      ['矢量（vec）', 'vec'],
+    ],
+  ],
+];
+
+/** 按面板顺序给出全部可插入符号，级联子菜单里的符号也会展开。 */
+function iterPanelGlyphs() {
+  const out = [];
+  const walk = (entries) => {
+    for (const entry of entries) {
+      if (Array.isArray(entry)) walk(entry[1]);
+      else out.push(entry);
+    }
+  };
+  for (const [, entries] of SYMBOL_GROUPS) walk(entries);
+  return out;
+}
+
+const BG = '#f3f5fb';
+const CARD = '#ffffff';
+const BORDER = '#dfe4f1';
+const TEXT = '#1f2937';
+const MUTED = '#6b7280';
+const ACCENT = '#4f46e5';
+const ACCENT_DARK = '#4338ca';
+const SUCCESS = '#15803d';
+const WARNING = '#b45309';
+const DANGER = '#b91c1c';
+const SOFT_ACCENT = '#eef2ff';
+const CANVAS_BG = '#fcfcff';
+const PREVIEW_BG = '#fcfcff';
+const EDITOR_BG = '#fbfcff';
+const PLACEHOLDER_FILL = '#fff7dd';
+const PLACEHOLDER_OUTLINE = '#d99a2b';
+const SELECTION_FILL = '#dbe2fe';
+
+const BASE_FONT_SIZE = 28;
+// 主画布按顺序试排字号；输出预览区更小，允许再缩两档。
+const AUTO_FIT_SIZES = [28, 26, 24, 22, 20, 18, 16, 14, 12];
+const PREVIEW_FIT_SIZES = AUTO_FIT_SIZES.concat([10, 8]);
+const ITEM_GAP = 4;
+const MIN_CANVAS_HEIGHT = 120;
+const MAX_CANVAS_HEIGHT = 320;
+const CANVAS_PADDING = 28;
+
+// 画布字体：与桌面版保持一致（Windows 自带字体），度量可以直接沿用。
+const MATH_FONT = 'Cambria, "Times New Roman", Georgia, serif';
+const SYMBOL_FONT = '"Segoe UI Symbol", "Cambria Math", "Arial Unicode MS", Arial, sans-serif';
+const UI_FONT = '"Microsoft YaHei UI", "Microsoft YaHei", "Segoe UI", system-ui, sans-serif';
+const MONO_FONT = '"Cascadia Code", Consolas, "Courier New", monospace';
+
+
+// ===== model.js =====
+/* 公式树模型、遍历、模板工厂、序列化与纯函数（对应 formula_editor_app/model.py）。 */
+'use strict';
+
+// -- 文本按码点处理的辅助函数（Python 的字符串下标按码点计） -----------------
+function textChars(text) {
+  return Array.from(text);
+}
+
+function textLength(text) {
+  return Array.from(text).length;
+}
+
+function textSlice(text, start, end) {
+  return Array.from(text).slice(start, end).join('');
+}
+
+function textInsertAt(text, position, insert) {
+  const chars = Array.from(text);
+  return chars.slice(0, position).join('') + insert + chars.slice(position).join('');
+}
+
+function textRemoveAt(text, position) {
+  const chars = Array.from(text);
+  chars.splice(position, 1);
+  return chars.join('');
+}
+
+// -- 节点与工厂 ---------------------------------------------------------------
+
+function newSlot(role) {
+  return { items: [{ kind: 'placeholder', free: false }], role: role || '公式', row: false };
+}
+
+function rowSlot(role) {
+  return { items: [{ kind: 'placeholder', free: false }], role: role || '公式', row: true };
+}
+
+function textRun(text, opts) {
+  return Object.assign(
+    { kind: 'text', text: text || '', upright: false, editable: true, free: false },
+    opts || {},
+  );
+}
+
+function makeSumNode() {
+  return {
+    kind: 'sum',
+    lower: newSlot('求和下限'),
+    upper: newSlot('求和上限'),
+    body: rowSlot('求和项'),
+  };
+}
+
+function makeIntegralNode() {
+  return {
+    kind: 'integral',
+    lower: newSlot('积分下限'),
+    upper: newSlot('积分上限'),
+    body: rowSlot('被积函数'),
+    var: newSlot('积分变量'),
+  };
+}
+
+function makeDerivativeNode() {
+  return {
+    kind: 'fraction',
+    numerator: { items: [textRun('d', { upright: true, editable: false }), { kind: 'placeholder', free: false }], role: '微分分子', row: true },
+    denominator: { items: [textRun('d', { upright: true, editable: false }), { kind: 'placeholder', free: false }], role: '微分分母', row: true },
+  };
+}
+
+function makeFractionNode() {
+  return { kind: 'fraction', numerator: newSlot('分子'), denominator: newSlot('分母') };
+}
+
+function makePowerNode() {
+  return { kind: 'power', base: newSlot('上标底数'), exponent: newSlot('上标') };
+}
+
+function makeSubscriptNode() {
+  return { kind: 'subscript', base: newSlot('下标底数'), subscript: newSlot('下标') };
+}
+
+function makeSubsupNode() {
+  return {
+    kind: 'sub_sup',
+    base: newSlot('上下标底数'),
+    subscript: newSlot('下标'),
+    superscript: newSlot('上标'),
+  };
+}
+
+function makeAccentNode(mark) {
+  return { kind: 'accent', body: newSlot('顶标内容'), mark: mark };
+}
+
+function makeSqrtNode() {
+  return { kind: 'root', radicand: newSlot('被开方数'), index: null };
+}
+
+function makeNthRootNode() {
+  return { kind: 'root', radicand: newSlot('被开方数'), index: newSlot('根指数') };
+}
+
+function makeMatrixNode(rows, cols, role) {
+  const cellRole = role || '矩阵元素';
+  const grid = [];
+  for (let r = 0; r < rows; r += 1) {
+    const row = [];
+    for (let c = 0; c < cols; c += 1) row.push(newSlot(cellRole));
+    grid.push(row);
+  }
+  return { kind: 'matrix', rows: grid };
+}
+
+function makeTemplate(key) {
+  switch (key) {
+    case 'sum': return makeSumNode();
+    case 'integral': return makeIntegralNode();
+    case 'derivative': return makeDerivativeNode();
+    case 'fraction': return makeFractionNode();
+    case 'power': return makePowerNode();
+    case 'subscript': return makeSubscriptNode();
+    case 'sub_sup': return makeSubsupNode();
+    case 'sqrt': return makeSqrtNode();
+    case 'nth_root': return makeNthRootNode();
+    default:
+      if (Object.prototype.hasOwnProperty.call(ACCENT_LATEX, key)) return makeAccentNode(key);
+      throw new Error('unknown template: ' + key);
+  }
+}
+
+// -- 遍历 ---------------------------------------------------------------------
+// 所有「按槽位递归」的遍历都用 childSlots() 展开：新增结构只改这一处，
+// 方框统计、Tab 切换、选择范围、首格定位就会一起生效。
+
+function childSlots(node) {
+  switch (node.kind) {
+    case 'sum': return [node.lower, node.upper, node.body];
+    case 'integral': return [node.lower, node.upper, node.body, node.var];
+    case 'fraction': return [node.numerator, node.denominator];
+    case 'power': return [node.base, node.exponent];
+    case 'subscript': return [node.base, node.subscript];
+    case 'sub_sup': return [node.base, node.subscript, node.superscript];
+    case 'accent': return [node.body];
+    case 'root': return node.index ? [node.radicand, node.index] : [node.radicand];
+    case 'matrix': {
+      const slots = [];
+      for (const row of node.rows) for (const cell of row) slots.push(cell);
+      return slots;
+    }
+    default: return [];
+  }
+}
+
+function isEditableInput(item) {
+  if (!item) return false;
+  if (item.kind === 'placeholder') return true;
+  return item.kind === 'text' && item.editable;
+}
+
+function isStructureItem(item) {
+  return (
+    item.kind === 'sum'
+    || item.kind === 'integral'
+    || item.kind === 'fraction'
+    || item.kind === 'power'
+    || item.kind === 'subscript'
+    || item.kind === 'sub_sup'
+    || item.kind === 'accent'
+    || item.kind === 'root'
+    || item.kind === 'matrix'
+  );
+}
+
+/** 按阅读顺序给出还没填写的方框（结构两侧的隐藏空位不算）。 */
+function* iterPlaceholders(slot) {
+  for (let index = 0; index < slot.items.length; index += 1) {
+    const item = slot.items[index];
+    if (item.kind === 'placeholder') {
+      if (!item.free) yield [slot, index, item];
+    } else {
+      for (const child of childSlots(item)) yield* iterPlaceholders(child);
+    }
+  }
+}
+
+/** 保证每个结构左右都有可编辑位置：已有空位或可编辑文本时直接复用。 */
+function normalizeFreeBoundaries(slot) {
+  for (const item of slot.items.slice()) {
+    for (const child of childSlots(item)) normalizeFreeBoundaries(child);
+  }
+
+  const items = slot.items;
+  let index = 0;
+  while (index < items.length) {
+    const item = items[index];
+    if (!isStructureItem(item)) {
+      index += 1;
+      continue;
+    }
+
+    if (index === 0 || !isEditableInput(items[index - 1])) {
+      items.splice(index, 0, { kind: 'placeholder', free: true });
+      index += 1;
+    }
+
+    if (index + 1 >= items.length || !isEditableInput(items[index + 1])) {
+      items.splice(index + 1, 0, { kind: 'placeholder', free: true });
+    }
+
+    index += 2;
+  }
+
+  // 整行都是空位时只保留一个，避免连续出现隐藏空位（结构内部的必填方框不受影响）。
+  while (
+    items.length >= 2
+    && items.every((item) => item.kind === 'placeholder' && item.free)
+  ) {
+    items.pop();
+  }
+}
+
+/** 按阅读/填写顺序返回可点击的方框和可编辑文本。 */
+function* iterTargets(slot) {
+  for (let index = 0; index < slot.items.length; index += 1) {
+    const item = slot.items[index];
+    if (isEditableInput(item)) {
+      yield [slot, index, item];
+    } else if (isStructureItem(item)) {
+      for (const child of childSlots(item)) yield* iterTargets(child);
+    }
+  }
+}
+
+function firstTarget(slot) {
+  for (const target of iterTargets(slot)) return target;
+  return null;
+}
+
+/** 结构里第一个还没填的方框；结构已经填满时返回 null。 */
+function firstPlaceholderInNode(node) {
+  for (const slot of childSlots(node)) {
+    const target = firstTarget(slot);
+    if (target !== null && target[2].kind === 'placeholder') return target;
+  }
+  return null;
+}
+
+function countPlaceholders(slot) {
+  let count = 0;
+  for (const _ of iterPlaceholders(slot)) count += 1;
+  return count;
+}
+
+// -- 选择、删除与光标 ---------------------------------------------------------
+
+function slotParents(root) {
+  const parents = new Map();
+  const walk = (slot) => {
+    for (let index = 0; index < slot.items.length; index += 1) {
+      for (const child of childSlots(slot.items[index])) {
+        parents.set(child, [slot, index]);
+        walk(child);
+      }
+    }
+  };
+  walk(root);
+  return parents;
+}
+
+// -- 上下方向键：算符内部预先写死的格位上下关系 -------------------------------
+
+/**
+ * 算符内部各格位的「上/下相邻格位」表。
+ *
+ * 这张表是**预先写死**的：每个多行算符的每个格位都显式登记按 ↑ / ↓
+ * 能去的格位，``null`` 表示该方向没有格位。移动结果只看这张表，不看
+ * 画布上的实际坐标，因此与字号、行高以及格位里填了多少内容都无关。
+ */
+function verticalSlotNeighbors(node) {
+  const table = new Map();
+  switch (node.kind) {
+    case 'sum':
+      // ∑ 的上下限叠在上方和下方，求和项在右侧同一行。
+      table.set(node.lower, [node.upper, null]);
+      table.set(node.upper, [null, node.lower]);
+      table.set(node.body, [node.upper, node.lower]);
+      break;
+    case 'integral':
+      // 被积函数和积分变量在主线上，向上/向下回到上下限。
+      table.set(node.lower, [node.upper, null]);
+      table.set(node.upper, [null, node.lower]);
+      table.set(node.body, [node.upper, node.lower]);
+      table.set(node.var, [node.upper, node.lower]);
+      break;
+    case 'fraction':
+      table.set(node.numerator, [null, node.denominator]);
+      table.set(node.denominator, [node.numerator, null]);
+      break;
+    case 'power':
+      table.set(node.base, [node.exponent, null]);
+      table.set(node.exponent, [null, node.base]);
+      break;
+    case 'subscript':
+      table.set(node.base, [null, node.subscript]);
+      table.set(node.subscript, [node.base, null]);
+      break;
+    case 'sub_sup':
+      table.set(node.base, [node.superscript, node.subscript]);
+      table.set(node.subscript, [node.base, null]);
+      table.set(node.superscript, [null, node.base]);
+      break;
+    case 'root':
+      if (node.index) {
+        table.set(node.radicand, [node.index, null]);
+        table.set(node.index, [null, node.radicand]);
+      }
+      break;
+    case 'matrix': {
+      for (let rowIndex = 0; rowIndex < node.rows.length; rowIndex += 1) {
+        for (let colIndex = 0; colIndex < node.rows[rowIndex].length; colIndex += 1) {
+          const cell = node.rows[rowIndex][colIndex];
+          let above = null;
+          let below = null;
+          if (rowIndex > 0 && colIndex < node.rows[rowIndex - 1].length) {
+            above = node.rows[rowIndex - 1][colIndex];
+          }
+          if (rowIndex + 1 < node.rows.length && colIndex < node.rows[rowIndex + 1].length) {
+            below = node.rows[rowIndex + 1][colIndex];
+          }
+          table.set(cell, [above, below]);
+        }
+      }
+      break;
+    }
+    default:
+      break;
+  }
+  return table;
+}
+
+/**
+ * 按 ↑（direction < 0）/ ↓（direction > 0）取该格位的上下相邻格位。
+ *
+ * 只查该格位**直接所属**的算符：算符内部没有登记这个方向时返回 null，
+ * 不会继续向外层结构里找，也不会退回到普通的阅读顺序切换。
+ */
+function verticalNeighbor(slot, direction, parents) {
+  const info = parents.get(slot);
+  if (!info) return null;
+  const parentSlot = info[0];
+  const nodeIndex = info[1];
+  if (!(nodeIndex >= 0 && nodeIndex < parentSlot.items.length)) return null;
+  const node = parentSlot.items[nodeIndex];
+  if (!isStructureItem(node)) return null;
+  const entry = verticalSlotNeighbors(node).get(slot) || [null, null];
+  return direction < 0 ? entry[0] : entry[1];
+}
+
+/** 按阅读顺序给出可被选中的元素：可编辑文本、结构。 */
+function* iterSelectableSegments(root) {
+  const walk = function* (slot) {
+    for (let index = 0; index < slot.items.length; index += 1) {
+      const item = slot.items[index];
+      if (item.kind === 'text') {
+        if (item.editable) yield [slot, index, item];
+      } else if (item.kind === 'placeholder') {
+        continue;
+      } else {
+        yield [slot, index, item];
+        for (const child of childSlots(item)) yield* walk(child);
+      }
+    }
+  };
+  yield* walk(root);
+}
+
+function makeSelectionSegment(item, slot, index, x1, y1, x2, y2) {
+  return {
+    item: item,
+    slot: slot,
+    index: index,
+    x1: x1,
+    y1: y1,
+    x2: x2,
+    y2: y2,
+    parentSlot: null,
+    parentIndex: -1,
+    offset: null,
+  };
+}
+
+/** 在同一个槽位里、沿删除方向查找紧邻的结构元素。 */
+function structureTarget(slot, start, step) {
+  let index = step < 0 ? start - 1 : start + 1;
+  while (index >= 0 && index < slot.items.length) {
+    const item = slot.items[index];
+    if (isStructureItem(item)) return index;
+    if (item.kind === 'text') return null;
+    index += step;
+  }
+  return null;
+}
+
+/** 四则运算等单行算符按字符处理：整段都是算符字符时不算「结构」。 */
+function isPlainOperatorText(text) {
+  return !!text && Array.from(text).every((char) => PLAIN_OPERATOR_CHARS.has(char));
+}
+
+/**
+ * 光标是否位于该格位（槽位）的最前方。
+ *
+ * 结构内部的固定字符（如微分里的 d）属于算符本身，不算作前方内容；
+ * 前方只有空位时也算最前方。
+ */
+function isSlotFront(slot, index, caret) {
+  if (!(index >= 0 && index < slot.items.length)) return false;
+  const item = slot.items[index];
+  if (item.kind === 'text') {
+    if (!item.editable || caret !== 0) return false;
+  } else if (item.kind !== 'placeholder') {
+    return false;
+  }
+  for (let previous = 0; previous < index; previous += 1) {
+    const prior = slot.items[previous];
+    if (prior.kind === 'placeholder') continue;
+    if (prior.kind === 'text' && !prior.editable) continue;
+    return false;
+  }
+  return true;
+}
+
+/**
+ * 在大型算符内任意格位最前方回格：删除整个算符，并用该格位的内容替换。
+ *
+ * 返回 [父槽位, 算符在父槽位中的下标, 用来替换的内容元素数组]；不满足条件时
+ * 返回 null。结构内部的固定字符（如微分的 d）不随内容一起替换。
+ */
+function planStructureUnwrap(slot, index, caret, parents) {
+  const info = parents.get(slot);
+  if (!info) return null;
+  const parentSlot = info[0];
+  const nodeIndex = info[1];
+  if (!(nodeIndex >= 0 && nodeIndex < parentSlot.items.length)) return null;
+  if (!isStructureItem(parentSlot.items[nodeIndex])) return null;
+  if (!isSlotFront(slot, index, caret)) return null;
+  const content = slot.items.filter(
+    (item) => !(item.kind === 'text' && !item.editable)
+      && !(item.kind === 'placeholder' && item.free),
+  );
+  return [parentSlot, nodeIndex, content];
+}
+
+/** 执行 planStructureUnwrap 的替换，返回 [父槽位, 起始下标, 内容个数]。 */
+function applyStructureUnwrap(plan) {
+  const parentSlot = plan[0];
+  const nodeIndex = plan[1];
+  const content = plan[2];
+  parentSlot.items.splice(nodeIndex, 1);
+  if (!content.length) {
+    parentSlot.items.splice(nodeIndex, 0, { kind: 'placeholder', free: true });
+    return [parentSlot, nodeIndex, 1];
+  }
+  for (const item of content) {
+    if (item.kind === 'placeholder') item.free = parentSlot.row;
+  }
+  parentSlot.items.splice(nodeIndex, 0, ...content);
+  return [parentSlot, nodeIndex, content.length];
+}
+
+/** 同一行里与 index 处元素相邻、且紧挨着的那个结构。 */
+function adjacentStructure(slot, index, step) {
+  const neighbor = index + step;
+  if (neighbor >= 0 && neighbor < slot.items.length && isStructureItem(slot.items[neighbor])) {
+    return slot.items[neighbor];
+  }
+  return null;
+}
+
+/**
+ * 处理「删除方向只有一个算符」的情形。
+ *
+ * direction=-1 为回格（向前删），1 为 Delete（向后删）。
+ * 当当前输入位置在删除方向上已经没有可删的字符、只与某个结构相邻时，
+ * 返回该结构的 [所在槽位, 下标]，以便把算符和它内部的结构整体删除。
+ *
+ * 只在**同一个槽位内、沿删除方向**查找：回格只往前、Delete 只往后，
+ * 绝不回头去删另一侧的字符或结构。
+ * 四则运算等「按字符处理」的单行算符不触发这条规则，只删字符本身。
+ */
+function deleteStructureToward(slot, index, caret, direction, activeItem) {
+  let item = activeItem;
+  if (item === undefined || item === null) {
+    if (index >= 0 && index < slot.items.length) item = slot.items[index];
+  }
+
+  if (item && item.kind === 'text') {
+    if (isPlainOperatorText(item.text)) return null;
+    if (item.editable) {
+      const atEdge = item.text.length === 0
+        || (direction < 0 ? caret === 0 : caret >= textLength(item.text));
+      if (!atEdge) return null;
+    }
+  } else if (!(item && item.kind === 'placeholder')) {
+    return null;
+  }
+
+  const target = structureTarget(slot, index, direction);
+  if (target === null) return null;
+  return [slot, target];
+}
+
+/** 把点击位置换算成文本内的字符偏移。 */
+function textOffsetFromCaret(caretPositions, x) {
+  if (caretPositions.length <= 2) return 0;
+  let bestIndex = 0;
+  let bestDistance = Math.abs(caretPositions[0] - x);
+  for (let offset = 1; offset < caretPositions.length - 1; offset += 1) {
+    const distance = Math.abs(caretPositions[offset] - x);
+    if (distance < bestDistance) {
+      bestDistance = distance;
+      bestIndex = offset;
+    }
+  }
+  return bestIndex;
+}
+
+/** 返回文本中 [start, end) 这一段的左右边缘坐标。 */
+function textCaretPositions(caretPositions, start, end) {
+  if (!caretPositions.length) return [0.0, 0.0];
+  const left = caretPositions[Math.max(0, Math.min(start, caretPositions.length - 1))];
+  const right = caretPositions[Math.max(0, Math.min(end, caretPositions.length - 1))];
+  return [left, right];
+}
+
+/** 根据锚点/焦点算出选择范围和其中每个片段的内容。 */
+function selectedSegmentsRange(
+  segments,
+  anchorIndex,
+  anchorTextOffset,
+  focusIndex,
+  focusTextOffset,
+) {
+  if (!segments.length) return [null, []];
+  const low = Math.max(0, Math.min(anchorIndex, focusIndex));
+  const high = Math.min(segments.length - 1, Math.max(anchorIndex, focusIndex));
+  if (low > high) return [null, []];
+
+  const selected = [];
+  for (let position = low; position <= high; position += 1) {
+    const segment = segments[position];
+    if (segment.item.kind === 'text' && segment.item.editable) {
+      let start = 0;
+      let end = textLength(segment.item.text);
+      if (position === low) {
+        start = anchorIndex <= focusIndex ? anchorTextOffset : focusTextOffset;
+      }
+      if (position === high) {
+        end = anchorIndex <= focusIndex ? focusTextOffset : anchorTextOffset;
+      }
+      start = Math.max(0, Math.min(start, textLength(segment.item.text)));
+      end = Math.max(start, Math.min(end, textLength(segment.item.text)));
+      if (start === end) continue;
+      segment.offset = [start, end];
+    } else {
+      segment.offset = null;
+    }
+    selected.push(segment);
+  }
+
+  if (!selected.length) return [null, []];
+  return [[low, high], selected];
+}
+
+/**
+ * 删除一段选择，返回删除后光标应落在的位置。
+ *
+ * 结构连同内部内容整体删除；文本只删除被选中的字符，保留未选部分。
+ * 空方框是结构规定的输入位置，**永远不参与删除**（结构被删时随结构一起消失）。
+ */
+function removeSelection(segments) {
+  const entries = [];
+  const seen = new Set();
+  for (const segment of segments) {
+    if (segment.item.kind === 'text' && segment.item.editable) {
+      const text = segment.item.text;
+      const offset = segment.offset !== null ? segment.offset : [0, textLength(text)];
+      let start = Math.max(0, Math.min(offset[0], textLength(text)));
+      let end = Math.max(start, Math.min(offset[1], textLength(text)));
+      if (end <= start) continue;
+      if (seen.has(segment.item)) continue;
+      seen.add(segment.item);
+      entries.push([segment.slot, segment.index, segment.item, textSlice(text, 0, start) + textSlice(text, end)]);
+    } else if (segment.item.kind === 'placeholder') {
+      // 空方框不是内容，不能被拖选删除。
+      continue;
+    } else {
+      if (seen.has(segment.item)) continue;
+      seen.add(segment.item);
+      entries.push([segment.slot, segment.index, segment.item, null]);
+    }
+  }
+
+  if (!entries.length) return null;
+
+  let caretPosition = null;
+  for (const entry of entries) {
+    const slot = entry[0];
+    const index = entry[1];
+    const item = entry[2];
+    const newText = entry[3];
+    if (!(index >= 0 && index < slot.items.length && slot.items[index] === item)) continue;
+    if (caretPosition === null) caretPosition = [slot, index, 0];
+    if (newText === null) {
+      slot.items.splice(index, 1);
+    } else if (newText) {
+      item.text = newText;
+    } else {
+      slot.items[index] = { kind: 'placeholder', free: item.free };
+    }
+  }
+
+  if (caretPosition === null) return null;
+  const slot = caretPosition[0];
+  let index = caretPosition[1];
+  index = Math.max(0, Math.min(index, slot.items.length));
+  if (index >= slot.items.length) {
+    slot.items.push({ kind: 'placeholder', free: true });
+    return [slot, slot.items.length - 1, 0];
+  }
+  if (!isEditableInput(slot.items[index])) {
+    const candidate = editablePositionLeft(slot, index);
+    if (candidate !== null) return [slot, candidate, 0];
+    slot.items.splice(index, 0, { kind: 'placeholder', free: true });
+    return [slot, index, 0];
+  }
+  return [slot, index, 0];
+}
+
+/** 从 index 往左找最近的可编辑位置；找不到返回 null。 */
+function editablePositionLeft(slot, index) {
+  for (let candidate = index - 1; candidate >= 0; candidate -= 1) {
+    if (isEditableInput(slot.items[candidate])) return candidate;
+  }
+  return null;
+}
+
+/** 输出预览使用 mathtext，遇到矩阵时应切换到画布渲染（网页版由 KaTeX 处理）。 */
+function containsMatrix(slot) {
+  for (const item of slot.items) {
+    if (item.kind === 'matrix') return true;
+    for (const child of childSlots(item)) {
+      if (containsMatrix(child)) return true;
+    }
+  }
+  return false;
+}
+
+function serializeText(text) {
+  let out = '';
+  for (const char of text) {
+    out += Object.prototype.hasOwnProperty.call(SYMBOL_LATEX, char) ? SYMBOL_LATEX[char] : char;
+  }
+  return out;
+}
+
+// -- LaTeX 序列化 -------------------------------------------------------------
+
+function serializeItem(item) {
+  switch (item.kind) {
+    case 'text':
+      return item.upright ? '\\mathrm{' + item.text + '}' : serializeText(item.text);
+    case 'placeholder':
+      return item.free ? '' : PLACEHOLDER;
+    case 'sum':
+      return '\\sum_{' + serializeSlot(item.lower) + '}^{' + serializeSlot(item.upper) + '} ' + serializeSlot(item.body);
+    case 'integral':
+      return '\\int_{' + serializeSlot(item.lower) + '}^{' + serializeSlot(item.upper) + '} '
+        + serializeSlot(item.body) + '\\,\\mathrm{d}' + serializeSlot(item.var);
+    case 'fraction':
+      return '\\frac{' + serializeSlot(item.numerator) + '}{' + serializeSlot(item.denominator) + '}';
+    case 'power':
+      return '{' + serializeSlot(item.base) + '}^{' + serializeSlot(item.exponent) + '}';
+    case 'subscript':
+      return '{' + serializeSlot(item.base) + '}_{' + serializeSlot(item.subscript) + '}';
+    case 'sub_sup':
+      return '{' + serializeSlot(item.base) + '}_{' + serializeSlot(item.subscript) + '}^{' + serializeSlot(item.superscript) + '}';
+    case 'accent': {
+      const command = ACCENT_LATEX[item.mark] || '\\hat';
+      return command + '{' + serializeSlot(item.body) + '}';
+    }
+    case 'root':
+      if (item.index === null) return '\\sqrt{' + serializeSlot(item.radicand) + '}';
+      return '\\sqrt[' + serializeSlot(item.index) + ']{' + serializeSlot(item.radicand) + '}';
+    case 'matrix': {
+      const rows = item.rows.map((row) => row.map((cell) => serializeSlot(cell)).join(' & '));
+      return '\\begin{pmatrix} ' + rows.join(' \\\\ ') + ' \\end{pmatrix}';
+    }
+    default:
+      return '';
+  }
+}
+
+function serializeSlot(slot) {
+  return slot.items.map((item) => serializeItem(item)).join('');
+}
+
+// -- 纯函数 -------------------------------------------------------------------
+
+function stripMathDelimiters(source) {
+  let s = source.trim();
+  const pairs = [['$$', '$$'], ['$', '$'], ['\\[', '\\]'], ['\\(', '\\)']];
+  for (const [left, right] of pairs) {
+    if (s.length > left.length + right.length && s.startsWith(left) && s.endsWith(right)) {
+      s = s.slice(left.length, s.length - right.length).trim();
+    }
+  }
+  return s;
+}
+
+/** 把换行、制表符统一换成普通空格：画布上的文本不保留排版空白。 */
+function flattenText(text) {
+  return text.replace(/\r\n/g, ' ').replace(/\r/g, ' ').replace(/\n/g, ' ').replace(/\t/g, ' ');
+}
+
+function normalizeFormula(source) {
+  return stripMathDelimiters(flattenText(source)).trim();
+}
+
+function toMarkdown(latex) {
+  return '$$\n' + normalizeFormula(latex) + '\n$$';
+}
+
+function formatPreviewError(error) {
+  const message = String((error && error.message) || error || '').trim();
+  if (!message) return '无法解析该公式。';
+  const lines = message.split('\n').map((line) => line.trim()).filter((line) => line);
+  let last = lines.length ? lines[lines.length - 1] : '无法解析该公式。';
+  if (last.length > 180) last = last.slice(0, 177) + '...';
+  return last;
+}
+
+
+// ===== layout.js =====
+/* 画布布局引擎：文本、方框、求和/积分/分式/角标/顶标/根式/矩阵的尺寸与位置。
+ * 对应 formula_editor_app/layout.py；去掉了 tkfont，改为 Canvas measureText。 */
+'use strict';
+
+// 顶标在画布上绘制的字形；空字符串表示画一条与内容等宽的横线。
+const ACCENT_GLYPHS = {
+  hat: 'ˆ',
+  widehat: 'ˆ',
+  bar: '',
+  overline: '',
+  tilde: '˜',
+  widetilde: '˜',
+  dot: '˙',
+  ddot: '¨',
+  vec: '→',
+};
+
+// 文本最左/最右侧的可点击扩展区：点击后在该文本旁添加新的输入位置。
+const TEXT_EDGE_INSIDE = 4.0;
+const TEXT_EDGE_OUTSIDE = 8.0;
+// 结构（算符）左右两侧的可点击扩展区：点击后光标进入该结构前后的隐藏位置。
+const STRUCTURE_SIDE_MARGIN = 12.0;
+
+// 结构类型 -> 布局方法名。新增结构时在这里补一条，再写对应的 _layout_* 方法。
+const STRUCTURE_LAYOUT = {
+  sum: 'layoutSum',
+  integral: 'layoutIntegral',
+  fraction: 'layoutFraction',
+  power: 'layoutPower',
+  subscript: 'layoutSubscript',
+  sub_sup: 'layoutSubsup',
+  accent: 'layoutAccent',
+  root: 'layoutRoot',
+  matrix: 'layoutMatrix',
+};
+
+// -- 字体与测量 ---------------------------------------------------------------
+
+let measureContext = null;
+const fontMetricsCache = new Map();
+const measureCache = new Map();
+
+function getMeasureContext() {
+  if (measureContext === null) {
+    const canvas = document.createElement('canvas');
+    measureContext = canvas.getContext('2d');
+  }
+  return measureContext;
+}
+
+function fontString(size, italic, family) {
+  const px = Math.max(8, Math.round(size));
+  return (italic ? 'italic ' : '') + px + 'px ' + family;
+}
+
+function fontSizeFrom(font) {
+  const found = /(\d+(?:\.\d+)?)px/.exec(font);
+  return found ? Number(found[1]) : 16;
+}
+
+function fontMetrics(font) {
+  const cached = fontMetricsCache.get(font);
+  if (cached) return cached;
+  const ctx = getMeasureContext();
+  ctx.font = font;
+  const probe = ctx.measureText('x');
+  let ascent = probe.fontBoundingBoxAscent;
+  let descent = probe.fontBoundingBoxDescent;
+  if (!(ascent > 0)) ascent = probe.actualBoundingBoxAscent;
+  if (!(descent > 0)) descent = probe.actualBoundingBoxDescent;
+  const size = fontSizeFrom(font);
+  if (!(ascent > 0)) ascent = size * 0.8;
+  if (!(descent > 0)) descent = size * 0.2;
+  const result = { ascent: ascent, descent: descent };
+  fontMetricsCache.set(font, result);
+  return result;
+}
+
+function measureFont(font, text) {
+  const key = font + '\u0001' + text;
+  const cached = measureCache.get(key);
+  if (cached) return cached;
+  const ctx = getMeasureContext();
+  ctx.font = font;
+  const metrics = fontMetrics(font);
+  const width = text ? ctx.measureText(text).width : 0;
+  const result = { width: width, ascent: metrics.ascent, descent: metrics.descent };
+  measureCache.set(key, result);
+  return result;
+}
+
+/** 与桌面版 _font + _measure 等价：返回 [文字宽度, 字体 ascent, 字体 descent]。 */
+function measure(engine, size, italic, family, text) {
+  const font = fontString(size, italic, family || engine.mathFont);
+  const metrics = measureFont(font, text);
+  return [metrics.width, metrics.ascent, metrics.descent];
+}
+
+/** 与桌面版 _char_font 等价：符号字体正体；非字母正体；有字母判定才斜体。 */
+function charFont(engine, char, size, upright) {
+  if (SYMBOL_FONT_CHARS.has(char)) {
+    return fontString(size, false, engine.symbolFont);
+  }
+  const italic = !upright && /\p{L}/u.test(char);
+  return fontString(size, italic, engine.mathFont);
+}
+
+// -- 布局数据结构 -------------------------------------------------------------
+
+function emptyLayout() {
+  return { width: 0.0, ascent: 0.0, descent: 0.0, draws: [], hits: [], nodes: [], selection: null };
+}
+
+/** 按顺序把若干子布局的绘制项、命中区域和结构包围盒拼成三张表。 */
+function mergeLayouts(layouts) {
+  const draws = [];
+  const hits = [];
+  const nodes = [];
+  for (const layout of layouts) {
+    draws.push(...layout.draws);
+    hits.push(...layout.hits);
+    nodes.push(...layout.nodes);
+  }
+  return [draws, hits, nodes];
+}
+
+function shiftLayout(layout, dx, dy) {
+  const draws = layout.draws.map((draw) => {
+    if (draw.type === 'text') {
+      return Object.assign({}, draw, { x: draw.x + dx, y: draw.y + dy });
+    }
+    return Object.assign({}, draw, { x1: draw.x1 + dx, y1: draw.y1 + dy, x2: draw.x2 + dx, y2: draw.y2 + dy });
+  });
+  const hits = layout.hits.map((hit) => Object.assign({}, hit, {
+    x1: hit.x1 + dx,
+    y1: hit.y1 + dy,
+    x2: hit.x2 + dx,
+    y2: hit.y2 + dy,
+    charPositions: hit.charPositions ? hit.charPositions.map((p) => p + dx) : null,
+  }));
+  const nodes = layout.nodes.map((node) => Object.assign({}, node, {
+    x1: node.x1 + dx,
+    y1: node.y1 + dy,
+    x2: node.x2 + dx,
+    y2: node.y2 + dy,
+  }));
+  const selection = layout.selection
+    ? layout.selection.map((row) => Object.assign({}, row, {
+      x1: row.x1 + dx,
+      y1: row.y1 + dy,
+      x2: row.x2 + dx,
+      y2: row.y2 + dy,
+    }))
+    : null;
+  return {
+    width: layout.width,
+    ascent: layout.ascent,
+    descent: layout.descent,
+    draws: draws,
+    hits: hits,
+    nodes: nodes,
+    selection: selection,
+  };
+}
+
+function isPaintKeySelected(engine, slot, index) {
+  const set = engine.selectionPaintKeys.get(slot);
+  if (set && set.has(index)) return true;
+  return engine.selectionSlots.has(slot);
+}
+
+// -- 布局计算 -----------------------------------------------------------------
+
+/**
+ * 从大到小试排，返回第一个宽高都放得下的布局及其字号。
+ * 全部放不下时退回 sizes 里的最小字号，保证调用方总有布局可用。
+ */
+function fitLayout(engine, slot, availW, availH, sizes) {
+  const trySizes = sizes || AUTO_FIT_SIZES;
+  for (const size of trySizes) {
+    const layout = layoutSlot(engine, slot, 0.0, 0.0, size);
+    if (layout.width <= availW && layout.ascent + layout.descent <= availH) {
+      return [layout, size];
+    }
+  }
+  const smallest = trySizes[trySizes.length - 1];
+  return [layoutSlot(engine, slot, 0.0, 0.0, smallest), smallest];
+}
+
+function childLayout(engine, slot, x, baseline, size) {
+  return shiftLayout(layoutSlot(engine, slot, 0.0, 0.0, size), x, baseline);
+}
+
+function layoutItem(engine, item, parentSlot, index, x, baseline, size) {
+  if (item.kind === 'text') return layoutText(engine, item, parentSlot, index, x, baseline, size);
+  if (item.kind === 'placeholder') return layoutPlaceholder(engine, parentSlot, index, x, baseline, size);
+
+  // 结构被选中时，它内部的方框也改用选中底色，避免黄色方框盖住选中效果。
+  // 要在布局子槽位之前登记，才能让结构内部的方框也生效。
+  const set = engine.selectionPaintKeys.get(parentSlot);
+  if (set && set.has(index)) {
+    for (const slot of childSlots(item)) engine.selectionSlots.add(slot);
+  }
+
+  const methodName = STRUCTURE_LAYOUT[item.kind];
+  if (!methodName) return emptyLayout();
+  const child = layoutMethods[methodName](engine, item, x, baseline, size);
+
+  // 记录这个结构的整体包围盒（布局信息）。
+  child.nodes.push({
+    node: item,
+    parentSlot: parentSlot,
+    index: index,
+    x1: x,
+    y1: baseline - child.ascent,
+    x2: x + child.width,
+    y2: baseline + child.descent,
+  });
+  return child;
+}
+
+function layoutSlot(engine, slot, x, baseline, size) {
+  const draws = [];
+  const hits = [];
+  const nodes = [];
+  let cursor = x;
+  let ascent = 0.0;
+  let descent = 0.0;
+  const count = slot.items.length;
+
+  for (let index = 0; index < count; index += 1) {
+    const child = layoutItem(engine, slot.items[index], slot, index, cursor, baseline, size);
+    draws.push(...child.draws);
+    hits.push(...child.hits);
+    nodes.push(...child.nodes);
+    ascent = Math.max(ascent, child.ascent);
+    descent = Math.max(descent, child.descent);
+    cursor += child.width;
+    if (index < count - 1) cursor += ITEM_GAP;
+  }
+
+  return { width: cursor - x, ascent: ascent, descent: descent, draws: draws, hits: hits, nodes: nodes, selection: null };
+}
+
+function layoutText(engine, item, slot, index, x, baseline, size) {
+  const chars = textChars(item.text);
+  if (!chars.length) return emptyLayout();
+
+  const groups = [];
+  for (const char of chars) {
+    const font = charFont(engine, char, size, item.upright);
+    const last = groups[groups.length - 1];
+    if (last && last.font === font) {
+      last.text += char;
+    } else {
+      groups.push({ text: char, font: font });
+    }
+  }
+
+  const draws = [];
+  const caretPositions = [x];
+  let cursor = x;
+  let ascent = 0.0;
+  let descent = 0.0;
+
+  for (const group of groups) {
+    const info = measureFont(group.font, group.text);
+    ascent = Math.max(ascent, info.ascent);
+    descent = Math.max(descent, info.descent);
+    draws.push({ type: 'text', x: cursor, y: baseline + info.descent, text: group.text, font: group.font, fill: TEXT, anchor: 'sw' });
+    const groupChars = textChars(group.text);
+    for (let k = 1; k <= groupChars.length; k += 1) {
+      caretPositions.push(cursor + measureFont(group.font, groupChars.slice(0, k).join('')).width);
+    }
+    cursor += info.width;
+  }
+
+  const active = item.editable && slot === engine.activeSlot && index === engine.activeIndex;
+  const y1 = baseline - ascent - 3;
+  const y2 = baseline + descent + 3;
+
+  if (active) {
+    // 已经处于选中状态时不再画浅色底，否则会盖住选中高亮；只保留光标线。
+    const selected = isPaintKeySelected(engine, slot, index);
+    if (!selected) {
+      draws.unshift({ type: 'rect', x1: x - 3, y1: y1, x2: cursor + 3, y2: y2, fill: SOFT_ACCENT, outline: '', width: 0, dash: null });
+    }
+    const caretIndex = Math.max(0, Math.min(engine.caret, chars.length));
+    const cx = caretPositions[caretIndex];
+    draws.push({ type: 'line', x1: cx, y1: y1 + 2, x2: cx, y2: y2 - 2, fill: ACCENT, width: 1.6 });
+  }
+
+  const hits = [];
+  if (item.editable) {
+    // 两端各补一个边缘位置，使字符偏移与点击位置一一对应。
+    const caretEdges = [x].concat(caretPositions.slice(1), [cursor]);
+    hits.push({ slot: slot, index: index, x1: x - 2, y1: y1, x2: cursor + 2, y2: y2, charPositions: caretEdges, kind: 'text' });
+    // 文本左右两端额外提供“添加新项”的可点击区域。
+    const inside = TEXT_EDGE_INSIDE;
+    const outside = TEXT_EDGE_OUTSIDE;
+    hits.push({ slot: slot, index: index, x1: x - outside, y1: y1, x2: x + inside, y2: y2, charPositions: null, kind: 'text-edge-left' });
+    hits.push({ slot: slot, index: index, x1: cursor - inside, y1: y1, x2: cursor + outside, y2: y2, charPositions: null, kind: 'text-edge-right' });
+  }
+
+  return { width: cursor - x, ascent: ascent, descent: descent, draws: draws, hits: hits, nodes: [], selection: null };
+}
+
+function layoutPlaceholder(engine, slot, index, x, baseline, size) {
+  const font = fontString(size, false, engine.mathFont);
+  const metrics = fontMetrics(font);
+  const ascent = metrics.ascent;
+  const descent = metrics.descent;
+  const active = slot === engine.activeSlot && index === engine.activeIndex;
+  const item = index >= 0 && index < slot.items.length ? slot.items[index] : { kind: 'placeholder', free: false };
+
+  if (item.free) {
+    // 非结构型空位不画方框；只在获得焦点时显示光标。
+    const top = baseline - ascent - 4;
+    const bottom = baseline + descent + 4;
+    const draws = [];
+    if (active) draws.push({ type: 'line', x1: x, y1: top + 3, x2: x, y2: bottom - 3, fill: ACCENT, width: 1.6 });
+    return { width: 0.0, ascent: ascent + 4, descent: descent + 4, draws: draws, hits: [], nodes: [], selection: null };
+  }
+
+  const boxWidth = Math.max(26.0, measureFont(font, '0').width * 2.3);
+  const top = baseline - ascent - 4;
+  const bottom = baseline + descent + 4;
+  const selected = isPaintKeySelected(engine, slot, index);
+
+  let fill;
+  let outline;
+  let borderWidth;
+  let dash;
+  if (active && selected) {
+    // 光标在方框里、同时方框又被选中：保留选中底色，只叠加高亮边框和光标。
+    fill = SELECTION_FILL;
+    outline = ACCENT;
+    borderWidth = 2.0;
+    dash = null;
+  } else if (active) {
+    fill = SOFT_ACCENT;
+    outline = ACCENT;
+    borderWidth = 2.0;
+    dash = null;
+  } else if (selected) {
+    // 选中时方框用与选中高亮相同的底色，避免方框颜色盖住选中效果。
+    fill = SELECTION_FILL;
+    outline = ACCENT;
+    borderWidth = 1.4;
+    dash = null;
+  } else {
+    fill = PLACEHOLDER_FILL;
+    outline = PLACEHOLDER_OUTLINE;
+    borderWidth = 1.4;
+    dash = [4, 2];
+  }
+
+  const draws = [
+    { type: 'rect', x1: x, y1: top, x2: x + boxWidth, y2: bottom, fill: fill, outline: outline, width: borderWidth, dash: dash },
+  ];
+  if (active) {
+    if (selected) {
+      // 只画一条内边框表示“正在编辑”，不再覆盖整块底色。
+      draws.push({ type: 'rect', x1: x + 2.5, y1: top + 2.5, x2: x + boxWidth - 2.5, y2: bottom - 2.5, fill: '', outline: ACCENT, width: 1.2, dash: null });
+    } else {
+      draws.push({ type: 'line', x1: x + 8, y1: top + 6, x2: x + 8, y2: bottom - 6, fill: ACCENT, width: 1.6 });
+    }
+  }
+
+  const hits = [{ slot: slot, index: index, x1: x, y1: top, x2: x + boxWidth, y2: bottom, charPositions: null, kind: 'placeholder' }];
+  return { width: boxWidth, ascent: ascent + 4, descent: descent + 4, draws: draws, hits: hits, nodes: [], selection: null };
+}
+
+const layoutMethods = {
+  layoutSum(engine, node, x, baseline, size) {
+    const limitSize = Math.max(12.0, size * 0.68);
+    const upper = layoutSlot(engine, node.upper, 0.0, 0.0, limitSize);
+    const lower = layoutSlot(engine, node.lower, 0.0, 0.0, limitSize);
+    const body = layoutSlot(engine, node.body, 0.0, 0.0, size);
+
+    const glyphFont = fontString(size * 1.75, false, engine.symbolFont);
+    const glyph = measureFont(glyphFont, '∑');
+
+    const columnWidth = Math.max(glyph.width, upper.width, lower.width);
+    const glyphX = x + (columnWidth - glyph.width) / 2;
+    const upperBaseline = -glyph.ascent - 4 - upper.descent;
+    const lowerBaseline = glyph.descent + 4 + lower.ascent;
+    const bodyX = x + columnWidth + 10;
+
+    const upperShifted = shiftLayout(upper, x + (columnWidth - upper.width) / 2, baseline + upperBaseline);
+    const lowerShifted = shiftLayout(lower, x + (columnWidth - lower.width) / 2, baseline + lowerBaseline);
+    const bodyShifted = shiftLayout(body, bodyX, baseline);
+
+    const merged = mergeLayouts([upperShifted, lowerShifted, bodyShifted]);
+    const draws = merged[0];
+    const hits = merged[1];
+    const nodes = merged[2];
+    draws.unshift({ type: 'text', x: glyphX, y: baseline + glyph.descent, text: '∑', font: glyphFont, fill: TEXT, anchor: 'sw' });
+
+    const ascent = Math.max(glyph.ascent, -upperBaseline + upper.ascent, body.ascent);
+    const descent = Math.max(glyph.descent, lowerBaseline + lower.descent, body.descent);
+    const width = columnWidth + 10 + body.width;
+    return { width: width, ascent: ascent, descent: descent, draws: draws, hits: hits, nodes: nodes, selection: null };
+  },
+
+  layoutIntegral(engine, node, x, baseline, size) {
+    const limitSize = Math.max(11.0, size * 0.62);
+    const upper = layoutSlot(engine, node.upper, 0.0, 0.0, limitSize);
+    const lower = layoutSlot(engine, node.lower, 0.0, 0.0, limitSize);
+    const body = layoutSlot(engine, node.body, 0.0, 0.0, size);
+
+    const glyphFont = fontString(size * 2.15, false, engine.symbolFont);
+    const glyph = measureFont(glyphFont, '∫');
+
+    const limitX = x + glyph.width + 2;
+    const upperBaseline = -glyph.ascent + 2 + upper.ascent;
+    const lowerBaseline = glyph.descent - 2 - lower.descent;
+    const upperShifted = shiftLayout(upper, limitX, baseline + upperBaseline);
+    const lowerShifted = shiftLayout(lower, limitX, baseline + lowerBaseline);
+
+    const bodyX = x + glyph.width + Math.max(upper.width, lower.width) + 9;
+    const bodyShifted = shiftLayout(body, bodyX, baseline);
+
+    const dFont = fontString(size, false, engine.mathFont);
+    const dMetrics = measureFont(dFont, 'd');
+    const dX = bodyX + body.width + 6;
+    const varShifted = childLayout(engine, node.var, dX + dMetrics.width + 2, baseline, size);
+
+    const merged = mergeLayouts([upperShifted, lowerShifted, bodyShifted]);
+    const draws = [
+      { type: 'text', x: x, y: baseline + glyph.descent, text: '∫', font: glyphFont, fill: TEXT, anchor: 'sw' },
+      ...merged[0],
+      { type: 'text', x: dX, y: baseline + dMetrics.descent, text: 'd', font: dFont, fill: TEXT, anchor: 'sw' },
+      ...varShifted.draws,
+    ];
+    const hits = merged[1].concat(varShifted.hits);
+    const nodes = merged[2].concat(varShifted.nodes);
+
+    const ascent = Math.max(glyph.ascent, upperBaseline + upper.ascent, body.ascent, dMetrics.ascent, varShifted.ascent);
+    const descent = Math.max(glyph.descent, lowerBaseline + lower.descent, body.descent, dMetrics.descent, varShifted.descent);
+    const width = dX + dMetrics.width + 2 + varShifted.width - x;
+    return { width: width, ascent: ascent, descent: descent, draws: draws, hits: hits, nodes: nodes, selection: null };
+  },
+
+  layoutFraction(engine, node, x, baseline, size) {
+    const numerator = layoutSlot(engine, node.numerator, 0.0, 0.0, size);
+    const denominator = layoutSlot(engine, node.denominator, 0.0, 0.0, size);
+    const gap = 7.0;
+    const padding = 12.0;
+    const width = Math.max(numerator.width, denominator.width) + padding * 2;
+
+    const numeratorBaseline = -gap - numerator.descent;
+    const denominatorBaseline = gap + denominator.ascent;
+    const numeratorShifted = shiftLayout(numerator, x + (width - numerator.width) / 2, baseline + numeratorBaseline);
+    const denominatorShifted = shiftLayout(denominator, x + (width - denominator.width) / 2, baseline + denominatorBaseline);
+
+    const merged = mergeLayouts([numeratorShifted, denominatorShifted]);
+    merged[0].push({ type: 'line', x1: x + 2, y1: baseline, x2: x + width - 2, y2: baseline, fill: TEXT, width: 1.4 });
+
+    const ascent = Math.max(0.0, -numeratorBaseline + numerator.ascent);
+    const descent = Math.max(0.0, denominatorBaseline + denominator.descent);
+    return { width: width, ascent: ascent, descent: descent, draws: merged[0], hits: merged[1], nodes: merged[2], selection: null };
+  },
+
+  layoutPower(engine, node, x, baseline, size) {
+    const exponentSize = Math.max(11.0, size * 0.64);
+    const base = childLayout(engine, node.base, x, baseline, size);
+    const exponentBaseline = -Math.max(base.ascent * 0.52, size * 0.38);
+    const exponent = childLayout(engine, node.exponent, x + base.width + 2, baseline + exponentBaseline, exponentSize);
+
+    const merged = mergeLayouts([base, exponent]);
+    const ascent = Math.max(base.ascent, -exponentBaseline + exponent.ascent);
+    const descent = Math.max(base.descent, exponentBaseline + exponent.descent);
+    const width = base.width + 2 + exponent.width;
+    return { width: width, ascent: ascent, descent: descent, draws: merged[0], hits: merged[1], nodes: merged[2], selection: null };
+  },
+
+  layoutSubscript(engine, node, x, baseline, size) {
+    const scriptSize = Math.max(11.0, size * 0.64);
+    const base = childLayout(engine, node.base, x, baseline, size);
+    const subscriptBaseline = Math.max(base.descent * 0.55, size * 0.22);
+    const subscript = childLayout(engine, node.subscript, x + base.width + 2, baseline + subscriptBaseline, scriptSize);
+
+    const merged = mergeLayouts([base, subscript]);
+    const ascent = Math.max(base.ascent, -subscriptBaseline + subscript.ascent);
+    const descent = Math.max(base.descent, subscriptBaseline + subscript.descent);
+    const width = base.width + 2 + subscript.width;
+    return { width: width, ascent: ascent, descent: descent, draws: merged[0], hits: merged[1], nodes: merged[2], selection: null };
+  },
+
+  layoutSubsup(engine, node, x, baseline, size) {
+    const scriptSize = Math.max(11.0, size * 0.64);
+    const base = childLayout(engine, node.base, x, baseline, size);
+    const scriptX = x + base.width + 2;
+    const superscriptBaseline = -Math.max(base.ascent * 0.52, size * 0.38);
+    const subscriptBaseline = Math.max(base.descent * 0.55, size * 0.22);
+    const superscript = childLayout(engine, node.superscript, scriptX, baseline + superscriptBaseline, scriptSize);
+    const subscript = childLayout(engine, node.subscript, scriptX, baseline + subscriptBaseline, scriptSize);
+
+    const merged = mergeLayouts([base, superscript, subscript]);
+    const ascent = Math.max(base.ascent, -superscriptBaseline + superscript.ascent);
+    const descent = Math.max(base.descent, subscriptBaseline + subscript.descent);
+    const width = base.width + 2 + Math.max(subscript.width, superscript.width);
+    return { width: width, ascent: ascent, descent: descent, draws: merged[0], hits: merged[1], nodes: merged[2], selection: null };
+  },
+
+  layoutAccent(engine, node, x, baseline, size) {
+    const body = childLayout(engine, node.body, x, baseline, size);
+
+    const glyph = Object.prototype.hasOwnProperty.call(ACCENT_GLYPHS, node.mark) ? ACCENT_GLYPHS[node.mark] : 'ˆ';
+    const gap = Math.max(2.0, size * 0.12);
+    const top = -body.ascent - gap;
+
+    const draws = body.draws.slice();
+    let ascentTotal;
+    if (glyph) {
+      const font = fontString(Math.max(10.0, size * 0.62), false, engine.mathFont);
+      const mark = measureFont(font, glyph);
+      const markBaseline = top - mark.descent;
+      draws.push({
+        type: 'text',
+        x: x + (body.width - mark.width) / 2,
+        y: markBaseline + mark.descent,
+        text: glyph,
+        font: font,
+        fill: TEXT,
+        anchor: 'sw',
+      });
+      ascentTotal = -markBaseline + mark.ascent;
+    } else {
+      // 横线：紧贴内容上方画一条与内容同宽的线。
+      const lineY = top - 1;
+      draws.push({ type: 'line', x1: x, y1: lineY, x2: x + body.width, y2: lineY, fill: TEXT, width: 1.6 });
+      ascentTotal = -lineY + 1.6;
+    }
+
+    const ascent = Math.max(ascentTotal, body.ascent);
+    return { width: body.width, ascent: ascent, descent: body.descent, draws: draws, hits: body.hits, nodes: body.nodes, selection: null };
+  },
+
+  layoutRoot(engine, node, x, baseline, size) {
+    const radicand = layoutSlot(engine, node.radicand, 0.0, 0.0, size);
+    const indexLayout = node.index ? layoutSlot(engine, node.index, 0.0, 0.0, Math.max(11.0, size * 0.55)) : null;
+
+    const indexWidth = indexLayout ? indexLayout.width : 0.0;
+    const stemWidth = Math.max(18.0, indexLayout ? indexWidth + 6.0 : 18.0);
+    const contentX = x + stemWidth + 2;
+    const radTop = -radicand.ascent - 4;
+    const radBottom = radicand.descent + 4;
+    const lift = Math.min(11.0, Math.max(4.0, (radBottom - radTop) * 0.3));
+
+    const draws = [
+      { type: 'line', x1: x, y1: baseline + radBottom - lift, x2: x + 6, y2: baseline + radBottom, fill: TEXT, width: 1.6 },
+      { type: 'line', x1: x + 6, y1: baseline + radBottom, x2: x + stemWidth - 2, y2: baseline + radTop, fill: TEXT, width: 1.6 },
+      { type: 'line', x1: x + stemWidth - 2, y1: baseline + radTop, x2: contentX + radicand.width + 2, y2: baseline + radTop, fill: TEXT, width: 1.6 },
+    ];
+
+    const radicandShifted = shiftLayout(radicand, contentX, baseline);
+    draws.push(...radicandShifted.draws);
+    const hits = radicandShifted.hits.slice();
+    const nodes = radicandShifted.nodes.slice();
+
+    let indexBaseline = radTop;
+    if (indexLayout !== null) {
+      indexBaseline = radTop - 6 - indexLayout.descent;
+      const indexShifted = shiftLayout(indexLayout, x + 2, baseline + indexBaseline);
+      draws.push(...indexShifted.draws);
+      hits.push(...indexShifted.hits);
+      nodes.push(...indexShifted.nodes);
+    }
+
+    const ascent = Math.max(radicand.ascent + 4, indexLayout ? -indexBaseline + indexLayout.ascent : 0);
+    const descent = radicand.descent + 4;
+    const width = stemWidth + radicand.width + 4;
+    return { width: width, ascent: ascent, descent: descent, draws: draws, hits: hits, nodes: nodes, selection: null };
+  },
+
+  layoutMatrix(engine, node, x, baseline, size) {
+    const cellSize = Math.max(10.0, size * 0.88);
+    const cellLayouts = node.rows.map((row) => row.map((cell) => layoutSlot(engine, cell, 0.0, 0.0, cellSize)));
+    if (!cellLayouts.length || !cellLayouts[0].length) return emptyLayout();
+
+    const rowCount = cellLayouts.length;
+    let colCount = 0;
+    for (const row of cellLayouts) colCount = Math.max(colCount, row.length);
+    const colWidths = [];
+    for (let c = 0; c < colCount; c += 1) {
+      let maxWidth = 0;
+      for (let r = 0; r < rowCount; r += 1) {
+        if (c < cellLayouts[r].length) maxWidth = Math.max(maxWidth, cellLayouts[r][c].width);
+      }
+      colWidths.push(maxWidth + 14.0);
+    }
+    const rowHeights = [];
+    for (let r = 0; r < rowCount; r += 1) {
+      let maxHeight = 0;
+      for (const cell of cellLayouts[r]) maxHeight = Math.max(maxHeight, cell.ascent + cell.descent);
+      rowHeights.push(maxHeight + 10.0);
+    }
+    const innerWidth = colWidths.reduce((sum, w) => sum + w, 0) + 5.0 * (colCount - 1);
+    const innerHeight = rowHeights.reduce((sum, h) => sum + h, 0) + 5.0 * (rowCount - 1);
+    const top = -innerHeight / 2;
+
+    const parenSize = Math.max(size * 0.9, innerHeight / 1.55);
+    const parenFont = fontString(parenSize, false, engine.symbolFont);
+    const left = measureFont(parenFont, '(');
+    const right = measureFont(parenFont, ')');
+    const parenHalf = Math.max(left.ascent + left.descent, right.ascent + right.descent) / 2;
+
+    const leftX = x;
+    const innerX = x + left.width + 6;
+    const rightX = innerX + innerWidth + 6;
+    const width = rightX + right.width - x;
+
+    const draws = [
+      { type: 'text', x: leftX + left.width / 2, y: baseline, text: '(', font: parenFont, fill: TEXT, anchor: 'center' },
+      { type: 'text', x: rightX + right.width / 2, y: baseline, text: ')', font: parenFont, fill: TEXT, anchor: 'center' },
+    ];
+    const hits = [];
+    const nodes = [];
+
+    let rowTop = top;
+    for (let r = 0; r < rowCount; r += 1) {
+      const row = cellLayouts[r];
+      const rowHeight = rowHeights[r];
+      let maxAscent = 0;
+      for (const cell of row) maxAscent = Math.max(maxAscent, cell.ascent);
+      const rowBaseline = rowTop + 5 + maxAscent;
+      let colX = innerX;
+      for (let c = 0; c < row.length; c += 1) {
+        const cell = row[c];
+        const cellX = colX + (colWidths[c] - cell.width) / 2;
+        const shifted = shiftLayout(cell, cellX, baseline + rowBaseline);
+        draws.push(...shifted.draws);
+        hits.push(...shifted.hits);
+        nodes.push(...shifted.nodes);
+        colX += colWidths[c] + 5;
+      }
+      rowTop += rowHeight + 5;
+    }
+
+    const halfHeight = Math.max(innerHeight / 2, parenHalf) + 4;
+    return { width: width, ascent: halfHeight, descent: halfHeight, draws: draws, hits: hits, nodes: nodes, selection: null };
+  },
+};
+
+// -- 绘制（PaintBackend 的 Canvas2D 实现） ------------------------------------
+
+function paintLayoutToCanvas(ctx, canvas, layout, xOffset, baselineOffset, cssW, cssH, dpr) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, cssW, cssH);
+
+  if (layout.selection) {
+    for (const row of layout.selection) {
+      ctx.fillStyle = SELECTION_FILL;
+      ctx.fillRect(row.x1 + xOffset, row.y1 + baselineOffset, row.x2 - row.x1, row.y2 - row.y1);
+    }
+  }
+
+  for (const draw of layout.draws) {
+    if (draw.type === 'text') {
+      ctx.font = draw.font;
+      ctx.fillStyle = draw.fill;
+      const metrics = fontMetrics(draw.font);
+      const desc = metrics.descent;
+      if (draw.anchor === 'center') {
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(draw.text, draw.x + xOffset, draw.y + baselineOffset);
+      } else {
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'alphabetic';
+        // 桌面版 DrawText 的 y 是文字包围盒底部（anchor="sw"），换算成基线。
+        ctx.fillText(draw.text, draw.x + xOffset, draw.y + baselineOffset - desc);
+      }
+    } else if (draw.type === 'rect') {
+      ctx.lineWidth = draw.width || 0;
+      ctx.setLineDash(draw.dash && draw.dash.length ? draw.dash : []);
+      if (draw.outline) {
+        if (draw.fill) {
+          ctx.fillStyle = draw.fill;
+          ctx.fillRect(draw.x1 + xOffset, draw.y1 + baselineOffset, draw.x2 - draw.x1, draw.y2 - draw.y1);
+        }
+        ctx.strokeStyle = draw.outline;
+        ctx.strokeRect(draw.x1 + xOffset, draw.y1 + baselineOffset, draw.x2 - draw.x1, draw.y2 - draw.y1);
+      } else if (draw.fill) {
+        ctx.fillStyle = draw.fill;
+        ctx.fillRect(draw.x1 + xOffset, draw.y1 + baselineOffset, draw.x2 - draw.x1, draw.y2 - draw.y1);
+      }
+      ctx.setLineDash([]);
+    } else {
+      ctx.strokeStyle = draw.fill;
+      ctx.lineWidth = draw.width || 1;
+      ctx.beginPath();
+      ctx.moveTo(draw.x1 + xOffset, draw.y1 + baselineOffset);
+      ctx.lineTo(draw.x2 + xOffset, draw.y2 + baselineOffset);
+      ctx.stroke();
+    }
+  }
+}
+
+
+// ===== controller.js =====
+/* 主控制器：公式编辑交互与输出控制（对应 formula_editor_app/app.py）。
+ *
+ * 通过一个 host 接口与平台解耦：
+ *   host.setStatus(message, kind)          状态栏文字
+ *   host.alert(title, message)             警告弹窗
+ *   host.focus()                           让画布获得键盘焦点
+ *   host.setCursor(name)                   'arrow' | 'text' | 'hand'
+ *   host.canvasWidth()                     画布 CSS 宽度
+ *   host.windowHeight()                    窗口高度（决定画布最高能长到多少）
+ *   host.prepareCanvas(cssWidth, cssHeight)  调整画布的像素尺寸
+ *   host.devicePixelRatio()
+ *   host.syncMarkdown(markdown)            更新 Markdown 源码区与复制按钮
+ *   host.renderPreview(latex, message)     更新渲染预览区
+ *   host.schedule(callback, delayMs) -> id 延时任务（防抖）
+ *   host.cancel(id)
+ *   host.copyToClipboard(text, done)       done(ok: boolean)
+ *   host.canvas / host.ctx                 画布元素与 2D 上下文
+ */
+'use strict';
+
+function smallestOverlap(items, x, y, margin) {
+  const slack = margin || 0;
+  let best = null;
+  let bestArea = null;
+  for (const item of items) {
+    if (!(item.x1 - slack <= x && x <= item.x2 + slack)) continue;
+    if (!(item.y1 - slack <= y && y <= item.y2 + slack)) continue;
+    const area = (item.x2 - item.x1) * (item.y2 - item.y1);
+    if (bestArea === null || area < bestArea) {
+      best = item;
+      bestArea = area;
+    }
+  }
+  return best;
+}
+
+class EditorApp {
+  constructor(host) {
+    this.host = host;
+    this.canvas = host.canvas;
+    this.ctx = host.ctx;
+
+    this.rootSlot = {
+      items: [{ kind: 'placeholder', free: true }],
+      role: '公式',
+      row: true,
+    };
+    this.activeSlot = this.rootSlot;
+    this.activeIndex = 0;
+    this.caret = 0;
+
+    this.undoStack = [];
+    this.redoStack = [];
+
+    // 拖动选择：anchor 是按下鼠标的位置，focus 是当前拖动到的位置。
+    this.selectionAnchor = null;
+    this.selectionFocus = null;
+    this.selectionAnchorPoint = null;
+    this.selectionDragging = false;
+    this.selectionSegments = [];
+
+    this.canvasJob = null;
+    this.outputJob = null;
+    this.canvasSize = [0, 0];
+    this.requestedCanvasHeight = MIN_CANVAS_HEIGHT;
+    this.hitAreas = [];
+    this.nodeBoxes = [];
+    this.baseSize = BASE_FONT_SIZE;
+    this.currentMarkdown = '';
+    this.lastCursor = 'arrow';
+    this.lastLayout = null;
+
+    this.selectionPaintKeys = new Map();
+    this.selectionSlots = new Set();
+    this.engine = {
+      activeSlot: this.activeSlot,
+      activeIndex: this.activeIndex,
+      caret: this.caret,
+      selectionPaintKeys: this.selectionPaintKeys,
+      selectionSlots: this.selectionSlots,
+      mathFont: MATH_FONT,
+      symbolFont: SYMBOL_FONT,
+    };
+  }
+
+  /** 初始化：设置初始状态并排一次画布。 */
+  start() {
+    this.host.setStatus(
+      '就绪：输入公式，或用按钮插入模板；←/→ 切换输入位置，↑/↓ 在算符内的上下格位间移动。',
+      'muted',
+    );
+    this._update_canvas_status();
+    this._sync_markdown_source();
+    this._schedule_output_preview(0);
+    this._schedule_canvas_render(60);
+  }
+
+  // -- 调度 -----------------------------------------------------------------
+
+  _schedule_canvas_render(delay) {
+    if (this.canvasJob !== null) this.host.cancel(this.canvasJob);
+    this.canvasJob = this.host.schedule(() => this._render_canvas(), delay === undefined ? 40 : delay);
+  }
+
+  _schedule_output_preview(delay) {
+    if (this.outputJob !== null) this.host.cancel(this.outputJob);
+    this.outputJob = this.host.schedule(() => this._update_output_preview(), delay === undefined ? 260 : delay);
+  }
+
+  handleResize() {
+    this._schedule_canvas_render(50);
+  }
+
+  // -- 画布渲染 ---------------------------------------------------------------
+
+  _canvas_max_height() {
+    let rootHeight = this.host.windowHeight();
+    if (rootHeight < 400) rootHeight = 900;
+    return Math.max(MIN_CANVAS_HEIGHT + 40, Math.min(MAX_CANVAS_HEIGHT, rootHeight - 600));
+  }
+
+  _render_canvas() {
+    this.canvasJob = null;
+    const width = this.host.canvasWidth();
+    if (width <= 20) {
+      this.canvasJob = this.host.schedule(() => this._render_canvas(), 50);
+      return;
+    }
+
+    // 让方框在选中时也使用选中底色：渲染前告诉布局哪些方框被选中。
+    let state = this._selection_state();
+    let selectionRange = state[0];
+    let selected = state[1];
+    if (selectionRange !== null && this._selection_is_empty(selected)) {
+      // 收拢到光标（宽度为 0）的选择不再算“选中”，方框按普通编辑态绘制。
+      selectionRange = null;
+      selected = [];
+    }
+    this.selectionPaintKeys = new Map();
+    this.selectionSlots = new Set();
+    if (selectionRange !== null) {
+      for (const segment of selected) {
+        if (!this.selectionPaintKeys.has(segment.slot)) this.selectionPaintKeys.set(segment.slot, new Set());
+        this.selectionPaintKeys.get(segment.slot).add(segment.index);
+      }
+    }
+    this.engine.selectionPaintKeys = this.selectionPaintKeys;
+    this.engine.selectionSlots = this.selectionSlots;
+    try {
+      this._render_canvas_body(width);
+    } finally {
+      this.selectionPaintKeys = new Map();
+      this.selectionSlots = new Set();
+      this.engine.selectionPaintKeys = this.selectionPaintKeys;
+      this.engine.selectionSlots = this.selectionSlots;
+    }
+  }
+
+  _render_canvas_body(width) {
+    this.engine.activeSlot = this.activeSlot;
+    this.engine.activeIndex = this.activeIndex;
+    this.engine.caret = this.caret;
+
+    const availW = width - 44;
+    const maxHeight = this._canvas_max_height();
+
+    // 先按较大字号试排；内容放不下时画布会自动长高（最多 maxHeight）。
+    const fitted = fitLayout(this.engine, this.rootSlot, availW, maxHeight - CANVAS_PADDING, AUTO_FIT_SIZES);
+    let layout = fitted[0];
+    const chosenSize = fitted[1];
+
+    const contentHeight = layout.ascent + layout.descent;
+    const desiredHeight = Math.round(
+      Math.min(maxHeight, Math.max(MIN_CANVAS_HEIGHT, contentHeight + CANVAS_PADDING)),
+    );
+    this.requestedCanvasHeight = desiredHeight;
+    this.host.prepareCanvas(width, desiredHeight);
+
+    this.baseSize = chosenSize;
+    // 布局先平移到画布坐标，再统一绘制：命中区域和结构包围盒一并跟着平移。
+    const xOffset = (width - layout.width) / 2;
+    const baselineOffset = (desiredHeight - contentHeight) / 2 + layout.ascent;
+    layout = shiftLayout(layout, xOffset, baselineOffset);
+    this.hitAreas = layout.hits;
+    this.nodeBoxes = layout.nodes;
+    this.lastLayout = layout;
+
+    layout.selection = this._selection_rows(layout);
+    paintLayoutToCanvas(this.ctx, this.canvas, layout, 0.0, 0.0, width, desiredHeight, this.host.devicePixelRatio());
+    this._update_canvas_status();
+  }
+
+  _find_hit(x, y) {
+    return smallestOverlap(this.hitAreas, x, y, 0);
+  }
+
+  // -- 拖动选择 ---------------------------------------------------------------
+
+  _collect_segments() {
+    const maps = this._bounds_maps(this.hitAreas, this.nodeBoxes);
+    const textBounds = maps[0];
+    const nodeBounds = maps[1];
+
+    const segments = [];
+    for (const [slot, index, item] of iterSelectableSegments(this.rootSlot)) {
+      const hit = textBounds.get(slot) ? textBounds.get(slot).get(index) : null;
+      if (hit) {
+        segments.push(makeSelectionSegment(item, slot, index, hit.x1, hit.y1, hit.x2, hit.y2));
+        continue;
+      }
+      const node = nodeBounds.get(slot) ? nodeBounds.get(slot).get(index) : null;
+      if (node) {
+        segments.push(makeSelectionSegment(item, slot, index, node.x1, node.y1, node.x2, node.y2));
+      }
+    }
+
+    segments.sort((a, b) => (a.x1 - b.x1) || (a.y1 - b.y1));
+    return segments;
+  }
+
+  /** 按槽位/下标建索引：文本/方框的命中区 与 结构包围盒各一张表。 */
+  _bounds_maps(hits, nodes) {
+    const textBounds = new Map();
+    for (const hit of hits) {
+      if (hit.kind !== 'text' && hit.kind !== 'placeholder') continue;
+      if (!textBounds.has(hit.slot)) textBounds.set(hit.slot, new Map());
+      textBounds.get(hit.slot).set(hit.index, hit);
+    }
+    const nodeBounds = new Map();
+    for (const node of nodes) {
+      if (!nodeBounds.has(node.parentSlot)) nodeBounds.set(node.parentSlot, new Map());
+      nodeBounds.get(node.parentSlot).set(node.index, node);
+    }
+    return [textBounds, nodeBounds];
+  }
+
+  _segment_at(segments, x, y) {
+    return smallestOverlap(segments, x, y, 1.0);
+  }
+
+  _text_hit_for(segment) {
+    for (const hit of this.hitAreas) {
+      if (hit.slot === segment.slot && hit.index === segment.index && hit.kind === 'text') {
+        return hit;
+      }
+    }
+    return null;
+  }
+
+  _point_for_segment(segment, x) {
+    let offset = 0;
+    if (segment.item.kind === 'text') {
+      const hit = this._text_hit_for(segment);
+      if (hit !== null && hit.charPositions) {
+        offset = Math.min(
+          textOffsetFromCaret(hit.charPositions, x),
+          textLength(segment.item.text),
+        );
+      }
+    }
+    return [this.selectionSegments.indexOf(segment), offset];
+  }
+
+  /**
+   * 拖选时不能作为焦点目标的片段（Map<slot, Set<index>>）：锚点所在格位的外层结构。
+   *
+   * 指针还停在锚点文字所在的这一行里时，锚点所在格位的外层结构不参与焦点
+   * 判定：否则在分式分子里拖出一点点（还没离开这一行），焦点就会跳到整个
+   * 分式上，把分母里的内容也一起选中。指针离开这一行后恢复正常，把文本
+   * 拖到算符上仍然会整体选中它。
+   */
+  _anchor_row_exclusions(y) {
+    if (this.selectionAnchor === null) return null;
+    const position = this.selectionAnchor[0];
+    if (!(position >= 0 && position < this.selectionSegments.length)) return null;
+    const anchor = this.selectionSegments[position];
+    if (!(anchor.y1 <= y && y <= anchor.y2)) return null;
+    const parents = slotParents(this.rootSlot);
+    const excluded = new Map();
+    let slot = anchor.slot;
+    while (parents.has(slot)) {
+      const [parentSlot, index] = parents.get(slot);
+      if (!excluded.has(parentSlot)) excluded.set(parentSlot, new Set());
+      excluded.get(parentSlot).add(index);
+      slot = parentSlot;
+    }
+    return excluded.size ? excluded : null;
+  }
+
+  _selection_point_at(x, y) {
+    const segments = this.selectionSegments;
+    if (!segments.length) return null;
+    const excluded = this._anchor_row_exclusions(y);
+    let candidates = segments;
+    if (excluded !== null) {
+      candidates = segments.filter((segment) => {
+        const indexes = excluded.get(segment.slot);
+        return !(indexes && indexes.has(segment.index));
+      });
+      if (!candidates.length) candidates = segments;
+    }
+    let segment = this._segment_at(candidates, x, y);
+    if (segment === null) {
+      // 点在空白处时取水平距离最近的片段，方便拖到行首/行尾。
+      segment = candidates.reduce((best, seg) => {
+        const distance = Math.min(Math.abs(seg.x1 - x), Math.abs(seg.x2 - x));
+        const bestDistance = Math.min(Math.abs(best.x1 - x), Math.abs(best.x2 - x));
+        return distance < bestDistance ? seg : best;
+      });
+    }
+    return this._point_for_segment(segment, x);
+  }
+
+  /** 返回 [选择范围, 选中片段列表]；选择为空时返回 [null, []]。 */
+  _selection_state() {
+    if (this.selectionAnchor === null || this.selectionFocus === null) return [null, []];
+    return selectedSegmentsRange(
+      this.selectionSegments,
+      this.selectionAnchor[0],
+      this.selectionAnchor[1],
+      this.selectionFocus[0],
+      this.selectionFocus[1],
+    );
+  }
+
+  /** 选择收拢到光标（没有选中任何字符/方框）时返回 true。 */
+  _selection_is_empty(selected) {
+    if (!selected.length) return true;
+    if (selected.length > 1) return false;
+    return selected.every((segment) => segment.offset !== null && segment.offset[0] === segment.offset[1]);
+  }
+
+  _has_selection() {
+    const state = this._selection_state();
+    if (state[0] === null || !state[1].length) return false;
+    return !this._selection_is_empty(state[1]);
+  }
+
+  _collapse_selection() {
+    this.selectionAnchor = null;
+    this.selectionFocus = null;
+    this.selectionAnchorPoint = null;
+    this.selectionDragging = false;
+    this.selectionSegments = [];
+  }
+
+  /** 把选中内容换算成高亮矩形（坐标用布局坐标，由绘制统一加偏移）。 */
+  _selection_rows(layout) {
+    const state = this._selection_state();
+    if (state[0] === null) return [];
+
+    const maps = this._bounds_maps(layout.hits, layout.nodes);
+    const textBounds = maps[0];
+    const nodeBounds = maps[1];
+
+    const rows = [];
+    for (const segment of state[1]) {
+      const hit = textBounds.get(segment.slot) ? textBounds.get(segment.slot).get(segment.index) : null;
+      const node = nodeBounds.get(segment.slot) ? nodeBounds.get(segment.slot).get(segment.index) : null;
+      let x1;
+      let y1;
+      let x2;
+      let y2;
+      if (isStructureItem(segment.item)) {
+        if (!node) continue;
+        x1 = node.x1;
+        y1 = node.y1;
+        x2 = node.x2;
+        y2 = node.y2;
+      } else {
+        if (!hit) continue;
+        x1 = hit.x1;
+        y1 = hit.y1;
+        x2 = hit.x2;
+        y2 = hit.y2;
+        if (hit.kind === 'text' && hit.charPositions && segment.item.kind === 'text' && segment.offset !== null) {
+          const edges = textCaretPositions(hit.charPositions, segment.offset[0], segment.offset[1]);
+          x1 = edges[0];
+          x2 = edges[1];
+        }
+      }
+      if (x2 - x1 < 2) x2 = x1 + 2;
+      rows.push({ index: 0, offset: segment.offset, x1: x1, y1: y1, x2: x2, y2: y2 });
+    }
+    return rows;
+  }
+
+  _segment_index_for(slot, index) {
+    for (let position = 0; position < this.selectionSegments.length; position += 1) {
+      const segment = this.selectionSegments[position];
+      if (segment.slot === slot && segment.index === index) return position;
+    }
+    return null;
+  }
+
+  _target_index(targets) {
+    for (let position = 0; position < targets.length; position += 1) {
+      if (targets[position][0] === this.activeSlot && targets[position][1] === this.activeIndex) {
+        return position;
+      }
+    }
+    return null;
+  }
+
+  // -- 鼠标 -------------------------------------------------------------------
+
+  _on_canvas_drag_start(event) {
+    const x = event.x;
+    const y = event.y;
+    const hit = this._find_hit(x, y);
+    // 选择只能从“内容”（已填写的文本）上开始：空方框、空位以及它们周围的
+    // 空白都不能作为选择起点，避免拖选空方框后把它删掉。
+    const item = hit !== null && hit.index >= 0 && hit.index < hit.slot.items.length
+      ? hit.slot.items[hit.index]
+      : null;
+    let textHit = null;
+    if (item !== null && item.kind === 'text' && (hit.kind === 'text' || hit.kind === 'text-edge-left' || hit.kind === 'text-edge-right')) {
+      textHit = this._text_hit_for({ slot: hit.slot, index: hit.index, item: item });
+    }
+    this._collapse_selection();
+    this.selectionSegments = this._collect_segments();
+    const segmentIndex = textHit !== null ? this._segment_index_for(hit.slot, hit.index) : null;
+    if (textHit === null || segmentIndex === null) {
+      return this._handle_plain_click(x, y);
+    }
+    let offset = 0;
+    if (textHit.charPositions) {
+      offset = Math.min(textOffsetFromCaret(textHit.charPositions, x), textLength(item.text));
+    }
+    this.selectionAnchor = [segmentIndex, offset];
+    this.selectionFocus = [segmentIndex, offset];
+    this.selectionAnchorPoint = [x, y];
+    this.selectionDragging = false;
+    return 'break';
+  }
+
+  _on_canvas_drag_motion(event) {
+    if (this.selectionAnchor === null || this.selectionAnchorPoint === null) return 'break';
+    const x = event.x;
+    const y = event.y;
+    const hit = this._find_hit(x, y);
+    if (hit !== null && hit.kind === 'placeholder') {
+      // 鼠标停在空方框上：不把选择扩展到它所属的结构，空方框不参与选择。
+      return 'break';
+    }
+    const ax = this.selectionAnchorPoint[0];
+    const ay = this.selectionAnchorPoint[1];
+    if (!this.selectionDragging) {
+      if (Math.abs(x - ax) < 4 && Math.abs(y - ay) < 4) return 'break';
+      this.selectionDragging = true;
+    }
+    const point = this._selection_point_at(x, y);
+    if (point === null) return 'break';
+    if (this.selectionFocus !== null && point[0] === this.selectionFocus[0] && point[1] === this.selectionFocus[1]) {
+      return 'break';
+    }
+    this.selectionFocus = point;
+    this._render_canvas();
+    return 'break';
+  }
+
+  _on_canvas_drag_end(event) {
+    const x = event.x;
+    const y = event.y;
+    this.selectionAnchorPoint = null;
+    if (!this.selectionDragging) {
+      this._collapse_selection();
+      return this._handle_plain_click(x, y);
+    }
+    this.selectionDragging = false;
+    this._render_canvas();
+    if (this._has_selection()) {
+      this.host.focus();
+      this.host.setStatus('已选中一段内容；直接输入可替换，Backspace/Delete 可删除。', 'info');
+    } else {
+      this._collapse_selection();
+      this._render_canvas();
+    }
+    return 'break';
+  }
+
+  _handle_plain_click(x, y) {
+    this._collapse_selection();
+    this.host.focus();
+    const hit = this._find_hit(x, y);
+    if (hit !== null && (hit.kind === 'text-edge-left' || hit.kind === 'text-edge-right')) {
+      if (hit.slot.row) {
+        return this._add_text_edge_input(hit, hit.kind.endsWith('left') ? 'left' : 'right');
+      }
+      // 非行内槽位（上下限、分子分母、角标底数/上下标、矩阵单元格等）里
+      // 不新增输入位置：点击文本前后只定位光标，不能在方框外长出新的结构。
+      const item = hit.index >= 0 && hit.index < hit.slot.items.length ? hit.slot.items[hit.index] : null;
+      if (item === null || item.kind !== 'text') return 'break';
+      this.activeSlot = hit.slot;
+      this.activeIndex = hit.index;
+      this.caret = hit.kind === 'text-edge-left' ? 0 : textLength(item.text);
+      this._render_canvas();
+      this.host.setStatus('正在编辑：' + hit.slot.role + '；输入数字或字母即可。', 'info');
+      return 'break';
+    }
+
+    if (hit !== null) {
+      const item = hit.index >= 0 && hit.index < hit.slot.items.length ? hit.slot.items[hit.index] : null;
+      if (item === null || (item.kind !== 'placeholder' && item.kind !== 'text')) return 'break';
+      this.activeSlot = hit.slot;
+      this.activeIndex = hit.index;
+      if (hit.kind === 'text' && hit.charPositions) {
+        const edgeLeft = hit.charPositions[0];
+        const edgeRight = hit.charPositions[hit.charPositions.length - 1];
+        const width = Math.max(1.0, edgeRight - edgeLeft);
+        if (x <= edgeLeft + width * 0.35) {
+          // 点在这段文本的左半部分（含左侧边缘扩展区）：光标落在文本开头。
+          this.caret = 0;
+        } else {
+          let offset = Math.min(textOffsetFromCaret(hit.charPositions, x), textLength(item.text));
+          // 光标是“字符之间”的位置：点第 i 个字符左半边时落在 i 处。
+          const limit = Math.min(textLength(item.text), hit.charPositions.length - 2);
+          for (let charIndex = 0; charIndex < limit; charIndex += 1) {
+            const leftPos = hit.charPositions[charIndex];
+            const rightPos = hit.charPositions[charIndex + 1];
+            if (leftPos <= x && x < (leftPos + rightPos) / 2) {
+              offset = charIndex;
+              break;
+            }
+          }
+          this.caret = Math.min(offset, textLength(item.text));
+        }
+      } else {
+        this.caret = 0;
+      }
+      this._render_canvas();
+      this.host.setStatus('正在编辑：' + hit.slot.role + '；输入数字或字母即可。', 'info');
+      return 'break';
+    }
+
+    // 点在结构（算符）左右两侧：光标进入该结构前后的隐藏位置。
+    const side = this._structure_side_at(x, y);
+    if (side !== null) {
+      this._focus_structure_side(side[0], side[1]);
+      return 'break';
+    }
+
+    // 点在结构（算符）上：落到它第一个空方框，或它右侧的隐藏位置。
+    const segment = this._segment_at(this._collect_segments(), x, y);
+    if (segment !== null && isStructureItem(segment.item)) {
+      this._select_first_placeholder_of(segment.item);
+      this.host.focus();
+      return 'break';
+    }
+    this._render_canvas();
+    return 'break';
+  }
+
+  /** 找出鼠标所在的结构侧边区域，返回 [结构包围盒, "left"/"right"]。 */
+  _structure_side_at(x, y) {
+    const margin = STRUCTURE_SIDE_MARGIN;
+    let best = null;
+    for (const node of this.nodeBoxes) {
+      if (!(node.y1 - margin <= y && y <= node.y2 + margin)) continue;
+      let distance;
+      let side;
+      if (node.x1 - margin <= x && x < node.x1) {
+        distance = node.x1 - x;
+        side = 'left';
+      } else if (node.x2 < x && x <= node.x2 + margin) {
+        distance = x - node.x2;
+        side = 'right';
+      } else {
+        continue;
+      }
+      if (best === null || distance < best[0]) best = [distance, node, side];
+    }
+    if (best === null) return null;
+    return [best[1], best[2]];
+  }
+
+  /** 把光标放到结构左侧/右侧的隐藏位置（必要时补一个隐藏空位）。 */
+  _focus_structure_side(node, side) {
+    const slot = node.parentSlot;
+    const index = node.index;
+    if (!(index >= 0 && index < slot.items.length) || slot.items[index] !== node.node) {
+      this._render_canvas();
+      return;
+    }
+
+    if (side === 'left') {
+      let position = index - 1;
+      const needInsert = position < 0 || !isEditableInput(slot.items[position]);
+      if (needInsert) {
+        this._push_undo();
+        slot.items.splice(index, 0, { kind: 'placeholder', free: true });
+        position = index;
+        this.activeSlot = slot;
+        this.activeIndex = position;
+        this.caret = 0;
+        this._after_formula_change();
+      } else {
+        const item = slot.items[position];
+        this._set_active(slot, position, item.kind === 'text' ? textLength(item.text) : 0);
+      }
+    } else {
+      let position = index + 1;
+      const needInsert = position >= slot.items.length || !isEditableInput(slot.items[position]);
+      if (needInsert) {
+        this._push_undo();
+        slot.items.splice(index + 1, 0, { kind: 'placeholder', free: true });
+        position = index + 1;
+        this.activeSlot = slot;
+        this.activeIndex = position;
+        this.caret = 0;
+        this._after_formula_change();
+      } else {
+        this._set_active(slot, position, 0);
+      }
+    }
+    this.host.setStatus('已定位到算符旁边的输入位置；直接输入或插入结构即可。', 'info');
+    this.host.focus();
+  }
+
+  _add_text_edge_input(hit, side) {
+    const slot = hit.slot;
+    const index = hit.index;
+    if (!(index >= 0 && index < slot.items.length) || slot.items[index].kind !== 'text') return 'break';
+
+    const neighborIndex = side === 'left' ? index - 1 : index + 1;
+    if (neighborIndex >= 0 && neighborIndex < slot.items.length) {
+      const neighbor = slot.items[neighborIndex];
+      if (neighbor.kind === 'placeholder') {
+        this._set_active(slot, neighborIndex, 0);
+        this.host.setStatus('已定位到文本' + (side === 'left' ? '左' : '右') + '侧的输入位置；直接输入即可。', 'info');
+        this.host.focus();
+        return 'break';
+      }
+    }
+
+    const insertAt = side === 'left' ? index : index + 1;
+    this._push_undo();
+    slot.items.splice(insertAt, 0, { kind: 'placeholder', free: true });
+    this.activeSlot = slot;
+    this.activeIndex = insertAt;
+    this.caret = 0;
+    this._after_formula_change();
+    this.host.setStatus('已在文本' + (side === 'left' ? '左' : '右') + '侧添加输入位置；可直接输入或插入模板。', 'info');
+    this.host.focus();
+    return 'break';
+  }
+
+  _on_canvas_motion(x, y) {
+    const hit = this._find_hit(x, y);
+    let cursor;
+    if (hit !== null && (hit.kind === 'text-edge-left' || hit.kind === 'text-edge-right') && hit.slot.row) {
+      cursor = 'hand';
+    } else if (hit !== null) {
+      cursor = 'text';
+    } else if (this._structure_side_at(x, y) !== null) {
+      cursor = 'text';
+    } else if (this.selectionSegments.some((segment) => segment.x1 <= x && x <= segment.x2 && segment.y1 <= y && y <= segment.y2)) {
+      cursor = 'text';
+    } else {
+      cursor = 'arrow';
+    }
+    if (cursor !== this.lastCursor) {
+      this.lastCursor = cursor;
+      this.host.setCursor(cursor);
+    }
+  }
+
+  _on_canvas_leave() {
+    if (this.selectionDragging) return;
+    if (this.lastCursor !== 'arrow') {
+      this.lastCursor = 'arrow';
+      this.host.setCursor('arrow');
+    }
+  }
+
+  // -- 活动位置 ---------------------------------------------------------------
+
+  _active_item() {
+    if (this.activeSlot === null || this.activeIndex === null) return null;
+    if (!(this.activeIndex >= 0 && this.activeIndex < this.activeSlot.items.length)) return null;
+    return this.activeSlot.items[this.activeIndex];
+  }
+
+  _set_active(slot, index, caret) {
+    this.activeSlot = slot;
+    this.activeIndex = index;
+    this.caret = caret || 0;
+    this.host.focus();
+    this._render_canvas();
+    this._update_canvas_status();
+  }
+
+  _select_first_target() {
+    const target = firstTarget(this.rootSlot);
+    if (target === null) {
+      this.activeSlot = null;
+      this.activeIndex = 0;
+      this.caret = 0;
+      return;
+    }
+    this.activeSlot = target[0];
+    this.activeIndex = target[1];
+    this.caret = target[2].kind === 'text' ? textLength(target[2].text) : 0;
+  }
+
+  _select_first_placeholder_of(node) {
+    const target = firstPlaceholderInNode(node);
+    if (target !== null) {
+      this._set_active(target[0], target[1], 0);
+    } else {
+      this._select_first_target();
+      this._update_canvas_status();
+    }
+  }
+
+  // -- 撤销/重做 --------------------------------------------------------------
+
+  _push_undo() {
+    this.undoStack.push(structuredClone(this.rootSlot));
+    if (this.undoStack.length > 100) this.undoStack.shift();
+    this.redoStack = [];
+  }
+
+  undo() {
+    if (!this.undoStack.length) {
+      this.host.setStatus('没有可撤销的操作。', 'muted');
+      return 'break';
+    }
+    this.redoStack.push(structuredClone(this.rootSlot));
+    this.rootSlot = this.undoStack.pop();
+    this._select_first_target();
+    this._after_formula_change();
+    this.host.setStatus('已撤销一步编辑。', 'muted');
+    this.host.focus();
+    return 'break';
+  }
+
+  redo() {
+    if (!this.redoStack.length) {
+      this.host.setStatus('没有可重做的操作。', 'muted');
+      return 'break';
+    }
+    this.undoStack.push(structuredClone(this.rootSlot));
+    this.rootSlot = this.redoStack.pop();
+    this._select_first_target();
+    this._after_formula_change();
+    this.host.setStatus('已重做一步编辑。', 'muted');
+    this.host.focus();
+    return 'break';
+  }
+
+  // -- 输出 -------------------------------------------------------------------
+
+  _sync_markdown_source() {
+    const placeholders = countPlaceholders(this.rootSlot);
+    const latex = normalizeFormula(serializeSlot(this.rootSlot));
+    const markdown = placeholders > 0 || !latex ? '' : toMarkdown(latex);
+    this.currentMarkdown = markdown;
+    this.host.syncMarkdown(markdown);
+  }
+
+  _update_output_preview() {
+    this.outputJob = null;
+    const placeholders = countPlaceholders(this.rootSlot);
+    const latex = normalizeFormula(serializeSlot(this.rootSlot));
+
+    if (placeholders) {
+      this.host.renderPreview('', '还有 ' + placeholders + ' 个方框未填写\n完成全部方框后显示实时预览');
+      return;
+    }
+    if (!latex) {
+      this.host.renderPreview('', '填写公式后\n这里显示渲染预览');
+      return;
+    }
+    this.host.renderPreview(latex, '');
+  }
+
+  _normalize_free_boundaries() {
+    const activeItem = this._active_item();
+    const activeSlot = this.activeSlot;
+    normalizeFreeBoundaries(this.rootSlot);
+    if (activeItem !== null && activeSlot !== null) {
+      for (let index = 0; index < activeSlot.items.length; index += 1) {
+        if (activeSlot.items[index] === activeItem) {
+          this.activeIndex = index;
+          break;
+        }
+      }
+    }
+  }
+
+  _after_formula_change() {
+    this._collapse_selection();
+    this._normalize_free_boundaries();
+    this._sync_markdown_source();
+    this._render_canvas();
+    // 未填写完整时只需切换提示文字，可以立即更新；完整公式的渲染稍作防抖。
+    this._schedule_output_preview(this.currentMarkdown ? 260 : 0);
+    this._update_canvas_status();
+  }
+
+  _replace_selection() {
+    const state = this._selection_state();
+    if (state[0] === null) return null;
+    const target = removeSelection(state[1]);
+    this._collapse_selection();
+    return target;
+  }
+
+  // -- 键入 -------------------------------------------------------------------
+
+  _insert_text(text) {
+    text = flattenText(text);
+    if (!text) return;
+
+    if (this._has_selection()) {
+      this._push_undo();
+      const target = this._replace_selection();
+      if (target !== null) {
+        this.activeSlot = target[0];
+        this.activeIndex = target[1];
+        this.caret = target[2];
+        const item = this._active_item();
+        if (item !== null && item.kind === 'text' && item.editable) {
+          item.text = textInsertAt(item.text, this.caret, text);
+          this.caret = this.caret + textLength(text);
+        } else if (item !== null && item.kind === 'placeholder') {
+          this.activeSlot.items[this.activeIndex] = textRun(text, { free: item.free });
+          this.caret = textLength(text);
+        }
+      }
+      this._after_formula_change();
+      this.host.focus();
+      return;
+    }
+
+    let item = this._active_item();
+    if (item === null) {
+      this._select_first_target();
+      item = this._active_item();
+      if (item === null) return;
+    }
+
+    if (item.kind === 'placeholder') {
+      this._push_undo();
+      this.activeSlot.items[this.activeIndex] = textRun(text, { free: item.free });
+      this.caret = textLength(text);
+    } else if (item.kind === 'text' && item.editable) {
+      this._push_undo();
+      const position = Math.max(0, Math.min(this.caret, textLength(item.text)));
+      item.text = textInsertAt(item.text, position, text);
+      this.caret = position + textLength(text);
+    } else {
+      return;
+    }
+
+    this._after_formula_change();
+    this.host.focus();
+  }
+
+  _on_canvas_key(char) {
+    if (char && char.length === 1) {
+      this._insert_text(char);
+    }
+    return 'break';
+  }
+
+  // -- 删除 -------------------------------------------------------------------
+
+  _delete_selected() {
+    const state = this._selection_state();
+    if (state[0] === null) return false;
+    this._push_undo();
+    const target = this._replace_selection();
+    if (target !== null) {
+      this.activeSlot = target[0];
+      this.activeIndex = target[1];
+      this.caret = target[2];
+    }
+    this._after_formula_change();
+    this.host.focus();
+    return true;
+  }
+
+  _delete_structure(direction) {
+    if (this.activeSlot === null) return false;
+    const target = deleteStructureToward(
+      this.activeSlot,
+      this.activeIndex,
+      this.caret,
+      direction,
+      this._active_item(),
+    );
+    if (target === null) return false;
+    const slot = target[0];
+    let index = target[1];
+    if (!(index >= 0 && index < slot.items.length)) return false;
+    this._push_undo();
+    slot.items.splice(index, 1);
+    index = Math.min(index, Math.max(0, slot.items.length - 1));
+    if (!slot.items.length) {
+      slot.items.push({ kind: 'placeholder', free: true });
+      index = 0;
+    } else if (!isEditableInput(slot.items[index])) {
+      const found = editablePositionLeft(slot, index);
+      if (found !== null) index = found;
+    }
+    this.activeSlot = slot;
+    this.activeIndex = index;
+    this.caret = 0;
+    this._after_formula_change();
+    this.host.setStatus('已删除相邻的算符及其内部结构；可用 Ctrl+Z 撤销。', 'muted');
+    this.host.focus();
+    return true;
+  }
+
+  /** 在算符任意格位最前方回格：删除整个算符，并用该格位的内容替换。 */
+  _unwrap_structure() {
+    if (this.activeSlot === null) return false;
+    const plan = planStructureUnwrap(this.activeSlot, this.activeIndex, this.caret, slotParents(this.rootSlot));
+    if (plan === null) return false;
+    this._push_undo();
+    const applied = applyStructureUnwrap(plan);
+    const parentSlot = applied[0];
+    const start = applied[1];
+    const count = applied[2];
+    this.activeSlot = parentSlot;
+    this.activeIndex = start;
+    this.caret = 0;
+    this._select_front_of(parentSlot, start, count);
+    this._after_formula_change();
+    this.host.setStatus('已删除整个算符，并用该格位的内容替换；可用 Ctrl+Z 撤销。', 'muted');
+    this.host.focus();
+    return true;
+  }
+
+  /** 把光标放到刚替换进来的内容最前面。 */
+  _select_front_of(slot, start, count) {
+    for (let offset = 0; offset < count; offset += 1) {
+      const position = start + offset;
+      if (position >= slot.items.length) return;
+      const item = slot.items[position];
+      if (item.kind === 'placeholder' || item.kind === 'text') {
+        this.activeIndex = position;
+        this.caret = 0;
+        return;
+      }
+      if (isStructureItem(item)) {
+        const target = firstPlaceholderInNode(item);
+        if (target !== null) {
+          this.activeSlot = target[0];
+          this.activeIndex = target[1];
+          this.caret = 0;
+          return;
+        }
+        // 结构已经填满：把光标放在它右侧的隐藏位置。
+        const following = position + 1;
+        if (following >= slot.items.length || !isEditableInput(slot.items[following])) {
+          slot.items.splice(following, 0, { kind: 'placeholder', free: true });
+        }
+        this.activeIndex = following;
+        this.caret = 0;
+        return;
+      }
+    }
+    this.activeIndex = Math.min(start, Math.max(0, slot.items.length - 1));
+    this.caret = 0;
+  }
+
+  /**
+   * 删除光标一侧的相邻元素。
+   *
+   * 规则优先级：
+   * 1. 文本内部：删一个字符；
+   * 2. 在算符任意格位最前方按回格：删除整个算符，并用该格位的内容替换；
+   * 3. 删除方向上只有结构时：把该结构连同内部内容整体删除；
+   * 4. 纯算符文本：只删这个算符字符本身。
+   * 绝不在删除方向上跨过文本去删更远的内容。
+   */
+  _remove_at_caret(backward) {
+    const item = this._active_item();
+    if (item !== null && item.kind === 'text' && item.editable) {
+      if (backward && this.caret > 0) {
+        return this._remove_text_char(item, this.caret - 1);
+      }
+      if (!backward && this.caret < textLength(item.text)) {
+        return this._remove_text_char(item, this.caret);
+      }
+      if (backward) {
+        if (this._unwrap_structure()) return true;
+        // 纯算符文本（如单独键入的 +）：删掉这个算符字符本身。
+        if (item.text && isPlainOperatorText(item.text)) {
+          return this._remove_text_char(item, 0);
+        }
+        return this._delete_structure(-1);
+      }
+      return this._delete_structure(1);
+    }
+    if (backward) {
+      if (this._unwrap_structure()) return true;
+      return this._delete_structure(-1);
+    }
+    return this._delete_structure(1);
+  }
+
+  _remove_text_char(item, position) {
+    this._push_undo();
+    position = Math.max(0, Math.min(position, textLength(item.text) - 1));
+    item.text = textRemoveAt(item.text, position);
+    this.caret = position;
+    if (!item.text) {
+      this.activeSlot.items[this.activeIndex] = { kind: 'placeholder', free: item.free };
+      this.caret = 0;
+    }
+    this._after_formula_change();
+    this.host.focus();
+    return true;
+  }
+
+  _on_backspace() {
+    if (this._delete_selected()) return 'break';
+    this._remove_at_caret(true);
+    this.host.focus();
+    return 'break';
+  }
+
+  _on_delete() {
+    if (this._delete_selected()) return 'break';
+    this._remove_at_caret(false);
+    this.host.focus();
+    return 'break';
+  }
+
+  // -- 方向键 -----------------------------------------------------------------
+
+  /**
+   * 有选择时把选择收拢到远端（forward）或近端，返回是否收拢过。
+   *
+   * 收拢后返回 true，调用方据此停止这一次移动：与常见编辑器一致，
+   * 方向键的第一下只负责取消选择。
+   */
+  _collapse_selection_to_edge(forward) {
+    if (this.selectionAnchor === null) return false;
+    const state = this._selection_state();
+    const selected = state[1];
+    if (selected.length) {
+      const first = selected[0];
+      const last = selected[selected.length - 1];
+      let slot;
+      let index;
+      let offset;
+      if (forward) {
+        slot = last.slot;
+        index = last.index;
+        offset = last.offset ? last.offset[1] : 0;
+      } else {
+        slot = first.slot;
+        index = first.index;
+        offset = first.offset ? first.offset[0] : 0;
+      }
+      this._collapse_selection();
+      this.activeSlot = slot;
+      this.activeIndex = index;
+      this.caret = offset;
+      this._render_canvas();
+      this._update_canvas_status();
+      this.host.focus();
+      return true;
+    }
+    this._collapse_selection();
+    return false;
+  }
+
+  _move_caret(step) {
+    if (this._collapse_selection_to_edge(step > 0)) return 'break';
+
+    const item = this._active_item();
+    if (item !== null && item.kind === 'text' && item.editable) {
+      const newCaret = this.caret + step;
+      if (newCaret >= 0 && newCaret <= textLength(item.text)) {
+        if (newCaret !== this.caret) {
+          this.caret = newCaret;
+          this._render_canvas();
+          this._update_canvas_status();
+        }
+        this.host.focus();
+        return 'break';
+      }
+
+      // 光标已到这一段文本的尽头：先进入同一行里紧挨着的相邻结构；
+      // 没有相邻结构就停在原地，不要跳到别的方框去。
+      const node = adjacentStructure(this.activeSlot, this.activeIndex, step);
+      if (node !== null) {
+        if (step < 0) {
+          this._select_first_placeholder_of(node);
+        } else {
+          const target = firstTarget(node);
+          if (target !== null) this._set_active(target[0], target[1], 0);
+        }
+        this.host.setStatus('已进入相邻结构；继续按方向键可移动光标。', 'info');
+        return 'break';
+      }
+      const atTextEdge = (step < 0 && this.caret === 0)
+        || (step > 0 && this.caret >= textLength(item.text));
+      if (atTextEdge) {
+        this.host.focus();
+        return 'break';
+      }
+    }
+
+    // 光标已经在文本边界，或当前是空位/空方框：切换到相邻输入位置。
+    const targets = [...iterTargets(this.rootSlot)];
+    if (!targets.length) {
+      this.host.focus();
+      return 'break';
+    }
+
+    const currentIndex = this._target_index(targets);
+    let nextIndex;
+    if (currentIndex === null) {
+      nextIndex = step > 0 ? 0 : targets.length - 1;
+    } else {
+      nextIndex = currentIndex + step;
+      if (nextIndex < 0 || nextIndex >= targets.length) {
+        this.host.focus();
+        return 'break';
+      }
+    }
+
+    const target = targets[nextIndex];
+    const targetItem = target[2];
+    const caret = targetItem.kind === 'text' ? (step < 0 ? textLength(targetItem.text) : 0) : 0;
+    this._set_active(target[0], target[1], caret);
+    this.host.setStatus('正在编辑：' + target[0].role + '；←/→ 可继续切换输入位置。', 'info');
+    return 'break';
+  }
+
+  /**
+   * ↑ / ↓：在算符内部按预先写死的格位表切到上/下方最近的格位。
+   *
+   * direction=-1 是上，1 是下。只在该格位直接所属的算符里找；算符没有
+   * 登记这个方向的格位（例如分式分子按 ↑、顶标按 ↓）时停在原地。
+   */
+  _move_caret_vertical(direction) {
+    if (this._collapse_selection_to_edge(direction > 0)) return 'break';
+    this.host.focus();
+    if (this.activeSlot === null) return 'break';
+
+    const target = verticalNeighbor(this.activeSlot, direction, slotParents(this.rootSlot));
+    if (target === null) {
+      this.host.setStatus('当前位置所在的结构没有上/下相邻的格位。', 'muted');
+      return 'break';
+    }
+
+    const position = this._vertical_target_position(target);
+    this._set_active(target, position[0], position[1]);
+    const arrow = direction < 0 ? '上' : '下';
+    this.host.setStatus('已切换到' + arrow + '方的「' + target.role + '」；↑/↓ 可继续切换。', 'info');
+    return 'break';
+  }
+
+  /** 在目标格位里选一个和当前下标最接近的可编辑位置。 */
+  _vertical_target_position(slot) {
+    const items = slot.items;
+    if (!items.length) return [0, 0];
+    const wanted = Math.max(0, Math.min(this.activeIndex, items.length - 1));
+    const editable = [];
+    for (let position = 0; position < items.length; position += 1) {
+      if (isEditableInput(items[position])) editable.push(position);
+    }
+    if (!editable.length) return [wanted, 0];
+    let index = editable[0];
+    let best = [Math.abs(editable[0] - wanted), editable[0]];
+    for (const position of editable) {
+      const key = [Math.abs(position - wanted), position];
+      if (key[0] < best[0] || (key[0] === best[0] && key[1] < best[1])) {
+        best = key;
+        index = position;
+      }
+    }
+    const item = items[index];
+    if (item.kind === 'text' && item.editable) {
+      return [index, Math.max(0, Math.min(this.caret, textLength(item.text)))];
+    }
+    return [index, 0];
+  }
+
+  _move_selection(direction) {
+    this._collapse_selection();
+    const targets = [...iterTargets(this.rootSlot)];
+    if (!targets.length) return 'break';
+    const currentIndex = this._target_index(targets);
+    let nextIndex;
+    if (currentIndex === null) {
+      nextIndex = direction > 0 ? 0 : targets.length - 1;
+    } else {
+      nextIndex = (currentIndex + direction + targets.length) % targets.length;
+    }
+    const target = targets[nextIndex];
+    const caret = target[2].kind === 'text' ? textLength(target[2].text) : 0;
+    this._set_active(target[0], target[1], caret);
+    this._update_canvas_status();
+    return 'break';
+  }
+
+  // -- 插入结构 / 符号 ---------------------------------------------------------
+
+  _insert_node(node, label) {
+    const item = this._active_item();
+    const slot = this.activeSlot;
+
+    if (slot !== null && slot.row === false && item !== null && item.kind === 'text' && item.text) {
+      // 上下限、分子分母、角标底数/上下标、矩阵单元格等方框只放一个结构：
+      // 已经填了内容时不能再往里塞新结构（否则结构会“长”到方框外面）。
+      this.host.setStatus(
+        slot.role + '里已经有内容，这个位置只能放一个结构；请先清空再插入' + label + '。',
+        'warning',
+      );
+      this.host.focus();
+      return;
+    }
+
+    this._push_undo();
+
+    let placed = false;
+    if (item !== null && item.kind === 'placeholder') {
+      slot.items[this.activeIndex] = node;
+      placed = true;
+    } else if (item !== null && item.kind === 'text' && item.editable) {
+      slot.items.splice(this.activeIndex + 1, 0, node);
+      placed = true;
+    }
+    if (!placed) this.rootSlot.items.push(node);
+
+    this._select_first_placeholder_of(node);
+    this._after_formula_change();
+    this.host.setStatus('已插入' + label + '，依次填写方框即可。', 'info');
+    this.host.focus();
+  }
+
+  insert_template(key) {
+    const node = makeTemplate(key);
+    this._insert_node(node, TEMPLATE_LABELS[key]);
+  }
+
+  insert_matrix(rows, cols, kind) {
+    const role = kind === 'vector' ? '向量元素' : '矩阵元素';
+    const node = makeMatrixNode(rows, cols, role);
+    const label = rows + '×' + cols + ' ' + (kind === 'vector' ? '列向量' : '矩阵');
+    this._insert_node(node, label);
+  }
+
+  insert_symbol(glyph) {
+    this._insert_text(glyph);
+    this.host.focus();
+  }
+
+  clear_formula() {
+    if (!this.rootSlot.items.length) return;
+    this._push_undo();
+    this.rootSlot = { items: [{ kind: 'placeholder', free: true }], role: '公式', row: true };
+    this.activeSlot = this.rootSlot;
+    this.activeIndex = 0;
+    this.caret = 0;
+    this._after_formula_change();
+    this.host.setStatus('已清空公式，可用 Ctrl+Z 撤销。', 'muted');
+    this.host.focus();
+  }
+
+  // -- 复制与状态 -------------------------------------------------------------
+
+  _update_canvas_status() {
+    const state = this._selection_state();
+    const selectionRange = state[0];
+    const selected = state[1];
+    let message;
+    if (selectionRange !== null && selected.length) {
+      const structures = selected.filter((segment) => isStructureItem(segment.item)).length;
+      if (structures) {
+        message = '已选中 ' + selected.length + ' 段内容（含 ' + structures + ' 个算符/结构）；输入可替换，Backspace 可删除';
+      } else {
+        message = '已选中 ' + selected.length + ' 段文本；输入可替换，Backspace 可删除';
+      }
+      this.host.setCanvasStatus(message);
+      return;
+    }
+
+    const item = this._active_item();
+    if (item === null) {
+      message = '点击画布中的输入位置开始输入';
+    } else if (item.kind === 'placeholder') {
+      const kind = item.free ? '空位' : '空方框';
+      message = '正在编辑：' + this.activeSlot.role + '（' + kind + '）';
+    } else if (item.kind === 'text') {
+      let content = item.text || '空';
+      if (textLength(content) > 24) content = textSlice(content, 0, 21) + '...';
+      message = '正在编辑：' + this.activeSlot.role + ' · ' + content;
+    } else {
+      message = '点击画布中的输入位置开始输入';
+    }
+    const remaining = countPlaceholders(this.rootSlot);
+    if (remaining) {
+      message += ' · 还有 ' + remaining + ' 个必填方框待填写';
+    } else if (normalizeFormula(serializeSlot(this.rootSlot))) {
+      message += ' · 所有必填方框已填写，可以复制';
+    } else {
+      message += ' · 输入公式后可复制';
+    }
+    this.host.setCanvasStatus(message);
+  }
+
+  copy_markdown() {
+    if (!this.currentMarkdown) {
+      const placeholders = countPlaceholders(this.rootSlot);
+      if (placeholders) {
+        let firstPlaceholder = null;
+        for (const entry of iterPlaceholders(this.rootSlot)) {
+          firstPlaceholder = entry;
+          break;
+        }
+        if (firstPlaceholder !== null) {
+          this._set_active(firstPlaceholder[0], firstPlaceholder[1], 0);
+        }
+        this.host.alert(
+          '还有方框未填写',
+          '公式中还有 ' + placeholders + ' 个方框没有填写。\n请点击方框（或按 Tab）补齐内容后再复制。',
+        );
+        this.host.setStatus('复制未完成：还有 ' + placeholders + ' 个必填方框待填写。', 'warning');
+      } else {
+        this.host.alert('还没有公式', '请先在公式中填写内容。');
+        this.host.setStatus('复制未完成：公式为空。', 'warning');
+      }
+      this.host.focus();
+      return;
+    }
+
+    this.host.copyToClipboard(this.currentMarkdown, (ok) => {
+      if (ok) {
+        this.host.setStatus('Markdown 已复制到剪贴板。', 'success');
+      } else {
+        this.host.alert('复制失败', '无法访问剪贴板：浏览器拒绝了复制请求。');
+      }
+    });
+  }
+
+  // -- 键盘事件入口（由 UI 层调用） -------------------------------------------
+
+  handleKeyDown(event) {
+    const key = event.key;
+    if (event.ctrlKey || event.metaKey) {
+      if (key === 'z' || key === 'Z') {
+        return this.undo();
+      }
+      if (key === 'y' || key === 'Y') {
+        return this.redo();
+      }
+      return undefined;
+    }
+    switch (key) {
+      case 'Backspace': return this._on_backspace();
+      case 'Delete': return this._on_delete();
+      case 'ArrowLeft': return this._move_caret(-1);
+      case 'ArrowRight': return this._move_caret(1);
+      case 'ArrowUp': return this._move_caret_vertical(-1);
+      case 'ArrowDown': return this._move_caret_vertical(1);
+      case 'Tab': return this._move_selection(event.shiftKey ? -1 : 1);
+      case 'Enter': return this._copy_enter();
+      default:
+        if (key && key.length === 1 && !event.altKey) {
+          return this._on_canvas_key(key);
+        }
+        return undefined;
+    }
+  }
+
+  _copy_enter() {
+    this.copy_markdown();
+    return 'break';
+  }
+
+  /** 粘贴：由 UI 层从 paste 事件里取出纯文本再交给这里。 */
+  paste_text(text) {
+    const data = flattenText(text).trim();
+    if (data) this._insert_text(data);
+  }
+}
+
+
+// ===== ui.js =====
+/* 网页外壳：DOM 界面、画布事件、KaTeX 预览与剪贴板（对应 ui.py + preview.py + clipboard.py）。
+ * 由 build.mjs 与其余源码一起内联进单个 HTML 文件。 */
+'use strict';
+
+function showToast(title, message) {
+  const toast = document.getElementById('toast');
+  if (!toast) return;
+  toast.textContent = title + (message ? '：' + message : '');
+  toast.classList.add('show');
+  clearTimeout(showToast._timer);
+  showToast._timer = setTimeout(() => toast.classList.remove('show'), 4200);
+}
+
+function ensureKatex() {
+  if (window.katex) return;
+  if (!document.querySelector('link[data-katex]')) {
+    const link = document.createElement('link');
+    link.rel = 'stylesheet';
+    link.href = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css';
+    link.setAttribute('data-katex', '1');
+    document.head.appendChild(link);
+  }
+  if (!document.querySelector('script[data-katex]')) {
+    const script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js';
+    script.setAttribute('data-katex', '1');
+    script.onload = () => {
+      const pending = bootUI._pending;
+      if (pending && pending.latex) renderPreviewInto(pending.host, pending.latex, '');
+    };
+    document.head.appendChild(script);
+  }
+}
+
+function bootUI() {
+  const canvas = document.getElementById('canvas');
+  const ctx = canvas.getContext('2d');
+  const statusEl = document.getElementById('status');
+  const canvasStatusEl = document.getElementById('canvas-status');
+  const markdownEl = document.getElementById('markdown');
+  const previewEl = document.getElementById('preview');
+  const copyBtn = document.getElementById('copy');
+
+  const host = {
+    canvas: canvas,
+    ctx: ctx,
+    lastMarkdown: '',
+    lastPreview: { latex: '', message: '', rendered: false },
+
+    setStatus(text, kind) {
+      statusEl.textContent = text;
+      statusEl.className = 'status-text ' + (kind || 'muted');
+    },
+    setCanvasStatus(text) {
+      canvasStatusEl.textContent = text;
+    },
+    alert(title, message) {
+      showToast(title, message);
+    },
+    focus() {
+      try { canvas.focus({ preventScroll: true }); } catch (err) { canvas.focus(); }
+    },
+    setCursor(name) {
+      canvas.style.cursor = name === 'text' ? 'text' : name === 'hand' ? 'pointer' : 'default';
+    },
+    canvasWidth() {
+      return canvas.clientWidth || 640;
+    },
+    windowHeight() {
+      return window.innerHeight || 900;
+    },
+    devicePixelRatio() {
+      return window.devicePixelRatio || 1;
+    },
+    prepareCanvas(cssWidth, cssHeight) {
+      const dpr = this.devicePixelRatio();
+      canvas.width = Math.round(cssWidth * dpr);
+      canvas.height = Math.round(cssHeight * dpr);
+      canvas.style.height = cssHeight + 'px';
+    },
+    syncMarkdown(markdown) {
+      this.lastMarkdown = markdown;
+      markdownEl.textContent = markdown;
+      copyBtn.disabled = !markdown;
+    },
+    renderPreview(latex, message) {
+      renderPreviewInto(this, latex, message);
+    },
+    schedule(callback, delayMs) {
+      return setTimeout(callback, delayMs);
+    },
+    cancel(id) {
+      clearTimeout(id);
+    },
+    copyToClipboard(text, done) {
+      const finish = (ok) => { if (typeof done === 'function') done(ok); };
+      const fallback = () => {
+        try {
+          const area = document.createElement('textarea');
+          area.value = text;
+          area.style.position = 'fixed';
+          area.style.opacity = '0';
+          document.body.appendChild(area);
+          area.select();
+          const ok = document.execCommand('copy');
+          document.body.removeChild(area);
+          finish(!!ok);
+        } catch (err) {
+          finish(false);
+        }
+      };
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(text).then(() => finish(true)).catch(fallback);
+      } else {
+        fallback();
+      }
+    },
+  };
+
+  const app = new EditorApp(host);
+
+  // -- 工具栏 --------------------------------------------------------------
+
+  const toolbar = document.getElementById('toolbar');
+  const symbolRow = document.getElementById('symbols');
+  const categoryRow = document.getElementById('categories');
+
+  const makeButton = (label, onClick, className) => {
+    const button = document.createElement('button');
+    button.className = className || 'tool-btn';
+    button.textContent = label;
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      onClick();
+      canvas.focus();
+    });
+    return button;
+  };
+
+  const structureRow = document.createElement('div');
+  structureRow.className = 'row';
+  toolbar.appendChild(structureRow);
+
+  for (const [key, label] of [
+    ['sum', '∑ 求和'],
+    ['integral', '∫ 积分'],
+    ['derivative', 'd/dx 微分'],
+    ['fraction', 'a/b 分式'],
+  ]) {
+    structureRow.appendChild(makeButton(label, () => app.insert_template(key)));
+  }
+
+  const makeDropdown = (parent, label, buildPanel, extraClass) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'dropdown';
+    const button = document.createElement('button');
+    button.className = extraClass || 'tool-btn';
+    button.textContent = label;
+    const panel = document.createElement('div');
+    panel.className = 'dropdown-panel';
+    panel.hidden = true;
+    buildPanel(panel, () => { panel.hidden = true; });
+    wrap.append(button, panel);
+    parent.appendChild(wrap);
+
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      const willOpen = panel.hidden;
+      closeAllPanels();
+      panel.hidden = !willOpen;
+      button.classList.toggle('open', willOpen);
+    });
+    return wrap;
+  };
+
+  const closeAllPanels = () => {
+    for (const panel of document.querySelectorAll('.dropdown-panel')) panel.hidden = true;
+    for (const button of document.querySelectorAll('.dropdown > button')) button.classList.remove('open');
+  };
+
+  makeDropdown(structureRow, '√ 开方 ▾', (panel, close) => {
+    for (const [label, key] of [['平方根  √', 'sqrt'], ['n 次根  ⁿ√', 'nth_root']]) {
+      const item = document.createElement('button');
+      item.className = 'menu-item';
+      item.textContent = label;
+      item.addEventListener('click', (event) => {
+        event.stopPropagation();
+        close();
+        app.insert_template(key);
+        canvas.focus();
+      });
+      panel.appendChild(item);
+    }
+  });
+
+  makeDropdown(structureRow, '矩阵 ▾', (panel, close) => {
+    for (const [label, rows, cols] of [
+      ['2 × 2 矩阵', 2, 2],
+      ['3 × 3 矩阵', 3, 3],
+      ['2 × 3 矩阵', 2, 3],
+      ['3 × 2 矩阵', 3, 2],
+    ]) {
+      const item = document.createElement('button');
+      item.className = 'menu-item';
+      item.textContent = label;
+      item.addEventListener('click', (event) => {
+        event.stopPropagation();
+        close();
+        app.insert_matrix(rows, cols);
+        canvas.focus();
+      });
+      panel.appendChild(item);
+    }
+  });
+
+  makeDropdown(structureRow, '向量 ▾', (panel, close) => {
+    for (const [label, rows, cols] of [
+      ['2 × 1 列向量', 2, 1],
+      ['3 × 1 列向量', 3, 1],
+      ['1 × 2 行向量', 1, 2],
+      ['1 × 3 行向量', 1, 3],
+    ]) {
+      const item = document.createElement('button');
+      item.className = 'menu-item';
+      item.textContent = label;
+      item.addEventListener('click', (event) => {
+        event.stopPropagation();
+        close();
+        app.insert_matrix(rows, cols, 'vector');
+        canvas.focus();
+      });
+      panel.appendChild(item);
+    }
+  });
+
+  const separator = document.createElement('span');
+  separator.className = 'sep';
+  structureRow.appendChild(separator);
+  structureRow.appendChild(makeButton('撤销', () => app.undo(), 'ghost-btn'));
+  structureRow.appendChild(makeButton('清空', () => app.clear_formula(), 'ghost-btn'));
+
+  // -- 符号面板 -------------------------------------------------------------
+
+  const primaryRow = document.createElement('div');
+  primaryRow.className = 'row';
+  const primaryLabel = document.createElement('span');
+  primaryLabel.className = 'row-label';
+  primaryLabel.textContent = '运算符';
+  primaryRow.appendChild(primaryLabel);
+  for (const glyph of PRIMARY_SYMBOLS) {
+    primaryRow.appendChild(makeButton(glyph, () => app.insert_symbol(glyph), 'symbol-btn'));
+  }
+  symbolRow.appendChild(primaryRow);
+
+  const categoryLabelRow = document.createElement('div');
+  categoryLabelRow.className = 'row';
+  const categoryLabel = document.createElement('span');
+  categoryLabel.className = 'row-label';
+  categoryLabel.textContent = '更多符号';
+  categoryLabelRow.appendChild(categoryLabel);
+
+  const buildSymbolMenuEntries = (panel, entries) => {
+    for (const entry of entries) {
+      if (Array.isArray(entry)) {
+        // 级联子菜单：变量 → 希腊字母（小写 / 大写）。用内联展开，
+        // 避免被面板的滚动容器裁切。
+        const subWrap = document.createElement('div');
+        subWrap.className = 'submenu';
+        const subButton = document.createElement('button');
+        subButton.className = 'menu-item sub';
+        subButton.textContent = '▸ ' + entry[0];
+        const subList = document.createElement('div');
+        subList.className = 'submenu-list';
+        subList.hidden = true;
+        buildSymbolMenuEntries(subList, entry[1]);
+        subWrap.append(subButton, subList);
+        subButton.addEventListener('click', (event) => {
+          event.stopPropagation();
+          subList.hidden = !subList.hidden;
+        });
+        panel.appendChild(subWrap);
+      } else {
+        const item = document.createElement('button');
+        item.className = 'menu-item glyph';
+        item.textContent = entry;
+        item.addEventListener('click', (event) => {
+          event.stopPropagation();
+          closeAllPanels();
+          app.insert_symbol(entry);
+          canvas.focus();
+        });
+        panel.appendChild(item);
+      }
+    }
+  };
+
+  for (const [groupLabel, entries] of SYMBOL_GROUPS) {
+    makeDropdown(categoryLabelRow, groupLabel + ' ▾', (panel) => buildSymbolMenuEntries(panel, entries));
+  }
+
+  for (const [groupLabel, entries] of TEMPLATE_GROUPS) {
+    makeDropdown(categoryLabelRow, groupLabel + ' ▾', (panel, close) => {
+      for (const [label, key] of entries) {
+        const item = document.createElement('button');
+        item.className = 'menu-item';
+        item.textContent = label;
+        item.addEventListener('click', (event) => {
+          event.stopPropagation();
+          close();
+          app.insert_template(key);
+          canvas.focus();
+        });
+        panel.appendChild(item);
+      }
+    });
+  }
+
+  categoryRow.appendChild(categoryLabelRow);
+
+  document.addEventListener('click', () => closeAllPanels());
+
+  // -- 画布事件 -------------------------------------------------------------
+
+  const point = (event) => {
+    const rect = canvas.getBoundingClientRect();
+    return { x: event.clientX - rect.left, y: event.clientY - rect.top };
+  };
+
+  let pressing = false;
+
+  canvas.addEventListener('mousedown', (event) => {
+    event.preventDefault();
+    canvas.focus();
+    pressing = true;
+    const p = point(event);
+    app._on_canvas_drag_start({ x: p.x, y: p.y });
+  });
+
+  canvas.addEventListener('mousemove', (event) => {
+    const p = point(event);
+    app._on_canvas_motion(p.x, p.y);
+    if (pressing) app._on_canvas_drag_motion({ x: p.x, y: p.y });
+  });
+
+  canvas.addEventListener('mouseup', (event) => {
+    const p = point(event);
+    pressing = false;
+    app._on_canvas_drag_end({ x: p.x, y: p.y });
+    canvas.focus();
+  });
+
+  canvas.addEventListener('mouseleave', () => {
+    pressing = false;
+    app._on_canvas_leave();
+  });
+
+  canvas.addEventListener('keydown', (event) => {
+    if (event.isComposing || event.key === 'Process') return;
+    const result = app.handleKeyDown(event);
+    if (result === 'break') event.preventDefault();
+  });
+
+  let composing = false;
+  canvas.addEventListener('compositionstart', () => { composing = true; });
+  canvas.addEventListener('compositionend', (event) => {
+    composing = false;
+    if (event.data) app._insert_text(event.data);
+  });
+
+  canvas.addEventListener('paste', (event) => {
+    if (composing) return;
+    const data = event.clipboardData || window.clipboardData;
+    if (!data) return;
+    event.preventDefault();
+    const text = data.getData('text');
+    if (text) app.paste_text(text);
+  });
+
+  window.addEventListener('resize', () => app.handleResize());
+
+  copyBtn.addEventListener('click', () => app.copy_markdown());
+
+  ensureKatex();
+  app.start();
+  app._render_canvas();
+
+  // 供调试与无头测试使用
+  window.__editorApp = app;
+  window.__editorHost = host;
+}
+
+/** 渲染预览区：KaTeX 可用时渲染公式，否则回退成源码（离线可用）。 */
+function renderPreviewInto(host, latex, message) {
+  const previewEl = document.getElementById('preview');
+  previewEl.innerHTML = '';
+  bootUI._pending = { host: host, latex: latex || '' };
+  if (message) {
+    const div = document.createElement('div');
+    div.className = 'preview-msg';
+    div.textContent = message;
+    previewEl.appendChild(div);
+    host.lastPreview = { latex: latex, message: message, rendered: false };
+    return;
+  }
+  if (!latex) {
+    const div = document.createElement('div');
+    div.className = 'preview-msg';
+    div.textContent = '填写公式后\n这里显示渲染预览';
+    previewEl.appendChild(div);
+    host.lastPreview = { latex: '', message: '', rendered: false };
+    return;
+  }
+  if (window.katex) {
+    try {
+      window.katex.render(latex, previewEl, { displayMode: true, throwOnError: false });
+      host.lastPreview = { latex: latex, message: '', rendered: true };
+      return;
+    } catch (err) {
+      // 落到源码回退
+    }
+  }
+  const note = document.createElement('div');
+  note.className = 'preview-msg';
+  note.textContent = '未加载 KaTeX，显示 LaTeX 源码：';
+  const pre = document.createElement('pre');
+  pre.className = 'preview-fallback';
+  pre.textContent = latex;
+  previewEl.append(note, pre);
+  host.lastPreview = { latex: latex, message: '', rendered: true, fallback: true };
+}
+
+if (typeof window !== 'undefined' && !window.__NO_UI_BOOT__) {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', () => bootUI());
+  } else {
+    bootUI();
+  }
+}
+
+</script>
+</body>
+</html>

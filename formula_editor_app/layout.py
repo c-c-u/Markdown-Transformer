@@ -9,6 +9,7 @@ from typing import Optional, Union
 
 from .config import (
     ACCENT,
+    AUTO_FIT_SIZES,
     ITEM_GAP,
     PLACEHOLDER_FILL,
     PLACEHOLDER_OUTLINE,
@@ -19,6 +20,7 @@ from .config import (
 )
 from .model import (
     AccentNode,
+    Element,
     FractionNode,
     IntegralNode,
     MatrixNode,
@@ -105,6 +107,37 @@ class Layout:
     selection: Optional[list[SelectionRow]] = None
 
 
+def empty_layout() -> Layout:
+    """空的布局结果：没有尺寸、绘制项或命中项。"""
+    return Layout(0.0, 0.0, 0.0, [], [])
+
+
+def _merge(*layouts: Layout) -> tuple[list[DrawOp], list[HitArea], list[NodeBox]]:
+    """按顺序把若干子布局的绘制项、命中区域和结构包围盒拼成三张表。"""
+    draws: list[DrawOp] = []
+    hits: list[HitArea] = []
+    nodes: list[NodeBox] = []
+    for layout in layouts:
+        draws.extend(layout.draws)
+        hits.extend(layout.hits)
+        nodes.extend(layout.nodes)
+    return draws, hits, nodes
+
+
+# 结构类型 -> 布局方法名。新增结构时在这里补一条，再写对应的 _layout_* 方法。
+_STRUCTURE_LAYOUT = {
+    SumNode: "_layout_sum",
+    IntegralNode: "_layout_integral",
+    FractionNode: "_layout_fraction",
+    SuperscriptNode: "_layout_power",
+    SubscriptNode: "_layout_subscript",
+    SubSuperscriptNode: "_layout_subsup",
+    AccentNode: "_layout_accent",
+    RootNode: "_layout_root",
+    MatrixNode: "_layout_matrix",
+}
+
+
 def shift_layout(layout: Layout, dx: float, dy: float) -> Layout:
     draws: list[DrawOp] = []
     for draw in layout.draws:
@@ -187,7 +220,6 @@ def shift_layout(layout: Layout, dx: float, dy: float) -> Layout:
     return Layout(layout.width, layout.ascent, layout.descent, draws, hits, nodes, selection)
 
 
-
 class LayoutEngine:
     """提供布局计算与 Canvas 绘制方法；由主应用继承。"""
 
@@ -240,6 +272,33 @@ class LayoutEngine:
         return float(font.measure(text)), float(font.metrics("ascent")), float(font.metrics("descent"))
 
 
+    def _child(self, slot: Slot, x: float, baseline: float, size: float) -> Layout:
+        """在局部坐标里排好一个子槽位，再整体平移到 (x, baseline) 处。
+
+        返回的 width/ascent/descent 与局部布局一致，可以直接参与外层尺寸计算。
+        """
+        return shift_layout(self._layout_slot(slot, 0.0, 0.0, size), x, baseline)
+
+
+    def _fit_layout(
+        self,
+        slot: Slot,
+        avail_w: float,
+        avail_h: float,
+        sizes: tuple[int, ...] = AUTO_FIT_SIZES,
+    ) -> tuple[Layout, int]:
+        """从大到小试排，返回第一个宽高都放得下的布局及其字号。
+
+        全部放不下时退回 ``sizes`` 里的最小字号，保证调用方总有布局可用。
+        """
+        for size in sizes:
+            layout = self._layout_slot(slot, 0.0, 0.0, float(size))
+            if layout.width <= avail_w and layout.ascent + layout.descent <= avail_h:
+                return layout, size
+        smallest = sizes[-1]
+        return self._layout_slot(slot, 0.0, 0.0, float(smallest)), smallest
+
+
     def _layout_item(
         self,
         item: Element,
@@ -263,26 +322,10 @@ class LayoutEngine:
                 for slot in child_slots(item):
                     selected_slots.add(id(slot))
 
-        if isinstance(item, SumNode):
-            child = self._layout_sum(item, x, baseline, size)
-        elif isinstance(item, IntegralNode):
-            child = self._layout_integral(item, x, baseline, size)
-        elif isinstance(item, FractionNode):
-            child = self._layout_fraction(item, x, baseline, size)
-        elif isinstance(item, SuperscriptNode):
-            child = self._layout_power(item, x, baseline, size)
-        elif isinstance(item, SubscriptNode):
-            child = self._layout_subscript(item, x, baseline, size)
-        elif isinstance(item, SubSuperscriptNode):
-            child = self._layout_subsup(item, x, baseline, size)
-        elif isinstance(item, AccentNode):
-            child = self._layout_accent(item, x, baseline, size)
-        elif isinstance(item, RootNode):
-            child = self._layout_root(item, x, baseline, size)
-        elif isinstance(item, MatrixNode):
-            child = self._layout_matrix(item, x, baseline, size)
-        else:
-            return Layout(0, 0, 0, [], [])
+        method_name = _STRUCTURE_LAYOUT.get(type(item))
+        if method_name is None:
+            return empty_layout()
+        child = getattr(self, method_name)(item, x, baseline, size)
 
         # 记录这个结构的整体包围盒（布局信息）。
         child.nodes.append(
@@ -333,7 +376,7 @@ class LayoutEngine:
     ) -> Layout:
         text = item.text
         if not text:
-            return Layout(0, 0, 0, [], [])
+            return empty_layout()
 
         groups: list[tuple[str, tkfont.Font]] = []
         for char in text:
@@ -362,7 +405,6 @@ class LayoutEngine:
             item.editable
             and slot is self.active_slot
             and index == self.active_index
-            and isinstance(item, TextRun)
         )
         y1 = baseline - ascent - 3
         y2 = baseline + descent + 3
@@ -491,36 +533,30 @@ class LayoutEngine:
         lower = self._layout_slot(node.lower, 0.0, 0.0, limit_size)
         body = self._layout_slot(node.body, 0.0, 0.0, size)
 
-        glyph_size = size * 1.75
-        glyph_font = self._font(glyph_size, family=self.symbol_font)
+        glyph_font = self._font(size * 1.75, family=self.symbol_font)
         glyph_width, glyph_ascent, glyph_descent = self._measure(glyph_font, "∑")
 
         column_width = max(glyph_width, upper.width, lower.width)
-        upper_x = x + (column_width - upper.width) / 2
-        lower_x = x + (column_width - lower.width) / 2
         glyph_x = x + (column_width - glyph_width) / 2
-
         upper_baseline = -glyph_ascent - 4 - upper.descent
         lower_baseline = glyph_descent + 4 + lower.ascent
         body_x = x + column_width + 10
 
-        upper_shifted = shift_layout(upper, upper_x, baseline + upper_baseline)
-        lower_shifted = shift_layout(lower, lower_x, baseline + lower_baseline)
+        upper_shifted = shift_layout(
+            upper, x + (column_width - upper.width) / 2, baseline + upper_baseline
+        )
+        lower_shifted = shift_layout(
+            lower, x + (column_width - lower.width) / 2, baseline + lower_baseline
+        )
         body_shifted = shift_layout(body, body_x, baseline)
 
-        draws: list[DrawOp] = [
-            DrawText(glyph_x, baseline + glyph_descent, "∑", glyph_font, TEXT)
-        ]
-        draws.extend(upper_shifted.draws)
-        draws.extend(lower_shifted.draws)
-        draws.extend(body_shifted.draws)
-
+        draws, hits, nodes = _merge(upper_shifted, lower_shifted, body_shifted)
+        draws.insert(
+            0, DrawText(glyph_x, baseline + glyph_descent, "∑", glyph_font, TEXT)
+        )
         ascent = max(glyph_ascent, -upper_baseline + upper.ascent, body.ascent)
         descent = max(glyph_descent, lower_baseline + lower.descent, body.descent)
         width = column_width + 10 + body.width
-
-        hits = upper_shifted.hits + lower_shifted.hits + body_shifted.hits
-        nodes = upper_shifted.nodes + lower_shifted.nodes + body_shifted.nodes
         return Layout(width, ascent, descent, draws, hits, nodes)
 
 
@@ -530,8 +566,7 @@ class LayoutEngine:
         lower = self._layout_slot(node.lower, 0.0, 0.0, limit_size)
         body = self._layout_slot(node.body, 0.0, 0.0, size)
 
-        glyph_size = size * 2.15
-        glyph_font = self._font(glyph_size, family=self.symbol_font)
+        glyph_font = self._font(size * 2.15, family=self.symbol_font)
         glyph_width, glyph_ascent, glyph_descent = self._measure(glyph_font, "∫")
 
         limit_x = x + glyph_width + 2
@@ -548,42 +583,33 @@ class LayoutEngine:
         d_x = body_x + body.width + 6
         d_draw = DrawText(d_x, baseline + d_descent, "d", d_font, TEXT)
 
-        var_x = d_x + d_width + 2
-        var = self._layout_slot(node.var, 0.0, 0.0, size)
-        var_shifted = shift_layout(var, var_x, baseline)
+        var_shifted = self._child(node.var, d_x + d_width + 2, baseline, size)
 
-        draws: list[DrawOp] = [
-            DrawText(x, baseline + glyph_descent, "∫", glyph_font, TEXT)
+        draws, hits, nodes = _merge(upper_shifted, lower_shifted, body_shifted)
+        draws = [
+            DrawText(x, baseline + glyph_descent, "∫", glyph_font, TEXT),
+            *draws,
+            d_draw,
+            *var_shifted.draws,
         ]
-        draws.extend(upper_shifted.draws)
-        draws.extend(lower_shifted.draws)
-        draws.extend(body_shifted.draws)
-        draws.append(d_draw)
-        draws.extend(var_shifted.draws)
+        hits = hits + var_shifted.hits
+        nodes = nodes + var_shifted.nodes
 
         ascent = max(
             glyph_ascent,
             upper_baseline + upper.ascent,
             body.ascent,
             d_ascent,
-            var.ascent,
+            var_shifted.ascent,
         )
         descent = max(
             glyph_descent,
             lower_baseline + lower.descent,
             body.descent,
             d_descent,
-            var.descent,
+            var_shifted.descent,
         )
-        width = var_x + var.width - x
-
-        hits = upper_shifted.hits + lower_shifted.hits + body_shifted.hits + var_shifted.hits
-        nodes = (
-            upper_shifted.nodes
-            + lower_shifted.nodes
-            + body_shifted.nodes
-            + var_shifted.nodes
-        )
+        width = d_x + d_width + 2 + var_shifted.width - x
         return Layout(width, ascent, descent, draws, hits, nodes)
 
 
@@ -607,115 +633,78 @@ class LayoutEngine:
             baseline + denominator_baseline,
         )
 
-        draws: list[DrawOp] = []
-        draws.extend(numerator_shifted.draws)
-        draws.extend(denominator_shifted.draws)
-        draws.append(
-            DrawLine(x + 2, baseline, x + width - 2, baseline, TEXT, 1.4)
-        )
+        draws, hits, nodes = _merge(numerator_shifted, denominator_shifted)
+        draws.append(DrawLine(x + 2, baseline, x + width - 2, baseline, TEXT, 1.4))
 
         ascent = max(0.0, -numerator_baseline + numerator.ascent)
         descent = max(0.0, denominator_baseline + denominator.descent)
-        hits = numerator_shifted.hits + denominator_shifted.hits
-        nodes = numerator_shifted.nodes + denominator_shifted.nodes
         return Layout(width, ascent, descent, draws, hits, nodes)
 
 
     def _layout_power(self, node: SuperscriptNode, x: float, baseline: float, size: float) -> Layout:
         exponent_size = max(11.0, size * 0.64)
-        base = self._layout_slot(node.base, 0.0, 0.0, size)
-        exponent = self._layout_slot(node.exponent, 0.0, 0.0, exponent_size)
-
+        base = self._child(node.base, x, baseline, size)
         exponent_baseline = -max(base.ascent * 0.52, size * 0.38)
-        base_shifted = shift_layout(base, x, baseline)
-        exponent_shifted = shift_layout(
-            exponent,
+        exponent = self._child(
+            node.exponent,
             x + base.width + 2,
             baseline + exponent_baseline,
+            exponent_size,
         )
 
-        draws = base_shifted.draws + exponent_shifted.draws
+        draws, hits, nodes = _merge(base, exponent)
         ascent = max(base.ascent, -exponent_baseline + exponent.ascent)
         descent = max(base.descent, exponent_baseline + exponent.descent)
         width = base.width + 2 + exponent.width
-        hits = base_shifted.hits + exponent_shifted.hits
-        nodes = base_shifted.nodes + exponent_shifted.nodes
         return Layout(width, ascent, descent, draws, hits, nodes)
 
 
     def _layout_subscript(self, node: SubscriptNode, x: float, baseline: float, size: float) -> Layout:
         script_size = max(11.0, size * 0.64)
-        base = self._layout_slot(node.base, 0.0, 0.0, size)
-        subscript = self._layout_slot(node.subscript, 0.0, 0.0, script_size)
-
+        base = self._child(node.base, x, baseline, size)
         subscript_baseline = max(base.descent * 0.55, size * 0.22)
-        base_shifted = shift_layout(base, x, baseline)
-        subscript_shifted = shift_layout(
-            subscript,
+        subscript = self._child(
+            node.subscript,
             x + base.width + 2,
             baseline + subscript_baseline,
+            script_size,
         )
 
-        draws = base_shifted.draws + subscript_shifted.draws
+        draws, hits, nodes = _merge(base, subscript)
         ascent = max(base.ascent, -subscript_baseline + subscript.ascent)
         descent = max(base.descent, subscript_baseline + subscript.descent)
         width = base.width + 2 + subscript.width
-        hits = base_shifted.hits + subscript_shifted.hits
-        nodes = base_shifted.nodes + subscript_shifted.nodes
         return Layout(width, ascent, descent, draws, hits, nodes)
 
 
     def _layout_subsup(self, node: SubSuperscriptNode, x: float, baseline: float, size: float) -> Layout:
         script_size = max(11.0, size * 0.64)
-        base = self._layout_slot(node.base, 0.0, 0.0, size)
-        subscript = self._layout_slot(node.subscript, 0.0, 0.0, script_size)
-        superscript = self._layout_slot(node.superscript, 0.0, 0.0, script_size)
-
+        base = self._child(node.base, x, baseline, size)
         script_x = x + base.width + 2
         superscript_baseline = -max(base.ascent * 0.52, size * 0.38)
         subscript_baseline = max(base.descent * 0.55, size * 0.22)
-        base_shifted = shift_layout(base, x, baseline)
-        superscript_shifted = shift_layout(
-            superscript,
-            script_x,
-            baseline + superscript_baseline,
+        superscript = self._child(
+            node.superscript, script_x, baseline + superscript_baseline, script_size
         )
-        subscript_shifted = shift_layout(
-            subscript,
-            script_x,
-            baseline + subscript_baseline,
+        subscript = self._child(
+            node.subscript, script_x, baseline + subscript_baseline, script_size
         )
 
-        draws = (
-            base_shifted.draws
-            + superscript_shifted.draws
-            + subscript_shifted.draws
-        )
+        draws, hits, nodes = _merge(base, superscript, subscript)
         ascent = max(base.ascent, -superscript_baseline + superscript.ascent)
         descent = max(base.descent, subscript_baseline + subscript.descent)
         width = base.width + 2 + max(subscript.width, superscript.width)
-        hits = (
-            base_shifted.hits
-            + superscript_shifted.hits
-            + subscript_shifted.hits
-        )
-        nodes = (
-            base_shifted.nodes
-            + superscript_shifted.nodes
-            + subscript_shifted.nodes
-        )
         return Layout(width, ascent, descent, draws, hits, nodes)
 
 
     def _layout_accent(self, node: AccentNode, x: float, baseline: float, size: float) -> Layout:
-        body = self._layout_slot(node.body, 0.0, 0.0, size)
-        body_shifted = shift_layout(body, x, baseline)
+        body = self._child(node.body, x, baseline, size)
 
         glyph = self.ACCENT_GLYPHS.get(node.mark, "ˆ")
         gap = max(2.0, size * 0.12)
         top = -body.ascent - gap
 
-        draws = list(body_shifted.draws)
+        draws = list(body.draws)
         if glyph:
             font = self._font(max(10.0, size * 0.62), italic=False)
             mark_width, mark_ascent, mark_descent = self._measure(font, glyph)
@@ -742,8 +731,8 @@ class LayoutEngine:
             ascent,
             body.descent,
             draws,
-            body_shifted.hits,
-            body_shifted.nodes,
+            body.hits,
+            body.nodes,
         )
 
 
@@ -799,7 +788,7 @@ class LayoutEngine:
             for row in node.rows
         ]
         if not cell_layouts or not cell_layouts[0]:
-            return Layout(0, 0, 0, [], [])
+            return empty_layout()
 
         row_count = len(cell_layouts)
         col_count = max(len(row) for row in cell_layouts)
@@ -854,9 +843,8 @@ class LayoutEngine:
                 col_x += col_widths[c] + 5
             row_top += row_height + 5
 
-        ascent = max(inner_height / 2, paren_half) + 4
-        descent = max(inner_height / 2, paren_half) + 4
-        return Layout(width, ascent, descent, draws, hits, nodes)
+        half_height = max(inner_height / 2, paren_half) + 4
+        return Layout(width, half_height, half_height, draws, hits, nodes)
 
 
     def _paint_layout(

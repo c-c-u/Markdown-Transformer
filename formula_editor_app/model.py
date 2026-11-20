@@ -236,49 +236,8 @@ def make_template(key: str) -> Element:
 
 
 # -- 遍历 -------------------------------------------------------------------
-
-
-def _iter_placeholders(slot: Slot):
-    for index, item in enumerate(slot.items):
-        if isinstance(item, Placeholder):
-            if not item.free:
-                yield slot, index, item
-        elif isinstance(item, SumNode):
-            yield from _iter_placeholders(item.lower)
-            yield from _iter_placeholders(item.upper)
-            yield from _iter_placeholders(item.body)
-        elif isinstance(item, IntegralNode):
-            yield from _iter_placeholders(item.lower)
-            yield from _iter_placeholders(item.upper)
-            yield from _iter_placeholders(item.body)
-            yield from _iter_placeholders(item.var)
-        elif isinstance(item, FractionNode):
-            yield from _iter_placeholders(item.numerator)
-            yield from _iter_placeholders(item.denominator)
-        elif isinstance(item, SuperscriptNode):
-            yield from _iter_placeholders(item.base)
-            yield from _iter_placeholders(item.exponent)
-        elif isinstance(item, SubscriptNode):
-            yield from _iter_placeholders(item.base)
-            yield from _iter_placeholders(item.subscript)
-        elif isinstance(item, SubSuperscriptNode):
-            yield from _iter_placeholders(item.base)
-            yield from _iter_placeholders(item.subscript)
-            yield from _iter_placeholders(item.superscript)
-        elif isinstance(item, AccentNode):
-            yield from _iter_placeholders(item.body)
-        elif isinstance(item, RootNode):
-            yield from _iter_placeholders(item.radicand)
-            if item.index is not None:
-                yield from _iter_placeholders(item.index)
-        elif isinstance(item, MatrixNode):
-            for row in item.rows:
-                for cell in row:
-                    yield from _iter_placeholders(cell)
-
-
-def iter_placeholders(slot: Slot):
-    yield from _iter_placeholders(slot)
+# 所有「按槽位递归」的遍历都用 child_slots() 展开：新增结构只改这一处，
+# 方框统计、Tab 切换、选择范围、首格定位就会一起生效。
 
 
 def child_slots(node: Element) -> tuple[Slot, ...]:
@@ -328,15 +287,25 @@ def is_structure_item(item: Element) -> bool:
     )
 
 
-def normalize_free_boundaries(slot: Slot, parent: Optional[Slot] = None) -> None:
+def iter_placeholders(slot: Slot):
+    """按阅读顺序给出还没填写的方框（结构两侧的隐藏空位不算）。"""
+    for index, item in enumerate(slot.items):
+        if isinstance(item, Placeholder):
+            if not item.free:
+                yield slot, index, item
+        else:
+            for child in child_slots(item):
+                yield from iter_placeholders(child)
+
+
+def normalize_free_boundaries(slot: Slot) -> None:
     """保证每个结构左右都有可编辑位置。
 
     已有空位或可编辑文本时直接复用，不再额外插入；空位不绘制方框。
-    ``parent`` 只在递归时填充，供 ``slot_parents`` 使用。
     """
     for item in list(slot.items):
         for child in child_slots(item):
-            normalize_free_boundaries(child, slot)
+            normalize_free_boundaries(child)
 
     items = slot.items
     index = 0
@@ -366,42 +335,11 @@ def normalize_free_boundaries(slot: Slot, parent: Optional[Slot] = None) -> None
 def iter_targets(slot: Slot):
     """按阅读/填写顺序返回可点击的方框和可编辑文本。"""
     for index, item in enumerate(slot.items):
-        if isinstance(item, Placeholder):
+        if is_editable_input(item):
             yield slot, index, item
-        elif isinstance(item, TextRun) and item.editable:
-            yield slot, index, item
-        elif isinstance(item, SumNode):
-            yield from iter_targets(item.lower)
-            yield from iter_targets(item.upper)
-            yield from iter_targets(item.body)
-        elif isinstance(item, IntegralNode):
-            yield from iter_targets(item.lower)
-            yield from iter_targets(item.upper)
-            yield from iter_targets(item.body)
-            yield from iter_targets(item.var)
-        elif isinstance(item, FractionNode):
-            yield from iter_targets(item.numerator)
-            yield from iter_targets(item.denominator)
-        elif isinstance(item, SuperscriptNode):
-            yield from iter_targets(item.base)
-            yield from iter_targets(item.exponent)
-        elif isinstance(item, SubscriptNode):
-            yield from iter_targets(item.base)
-            yield from iter_targets(item.subscript)
-        elif isinstance(item, SubSuperscriptNode):
-            yield from iter_targets(item.base)
-            yield from iter_targets(item.subscript)
-            yield from iter_targets(item.superscript)
-        elif isinstance(item, AccentNode):
-            yield from iter_targets(item.body)
-        elif isinstance(item, RootNode):
-            yield from iter_targets(item.radicand)
-            if item.index is not None:
-                yield from iter_targets(item.index)
-        elif isinstance(item, MatrixNode):
-            for row in item.rows:
-                for cell in row:
-                    yield from iter_targets(cell)
+        elif is_structure_item(item):
+            for child in child_slots(item):
+                yield from iter_targets(child)
 
 
 def first_target(slot: Slot):
@@ -409,29 +347,10 @@ def first_target(slot: Slot):
 
 
 def first_placeholder_in_node(node: Element):
-    if isinstance(node, SumNode):
-        slots = (node.lower, node.upper, node.body)
-    elif isinstance(node, IntegralNode):
-        slots = (node.lower, node.upper, node.body, node.var)
-    elif isinstance(node, FractionNode):
-        slots = (node.numerator, node.denominator)
-    elif isinstance(node, SuperscriptNode):
-        slots = (node.base, node.exponent)
-    elif isinstance(node, SubscriptNode):
-        slots = (node.base, node.subscript)
-    elif isinstance(node, SubSuperscriptNode):
-        slots = (node.base, node.subscript, node.superscript)
-    elif isinstance(node, AccentNode):
-        slots = (node.body,)
-    elif isinstance(node, RootNode):
-        slots = (node.radicand, node.index) if node.index is not None else (node.radicand,)
-    elif isinstance(node, MatrixNode):
-        slots = tuple(cell for row in node.rows for cell in row)
-    else:
-        return None
-    for slot in slots:
+    """结构里第一个还没填的方框；结构已经填满时返回 None。"""
+    for slot in child_slots(node):
         target = first_target(slot)
-        if isinstance(target[2], Placeholder):
+        if target is not None and isinstance(target[2], Placeholder):
             return target
     return None
 
@@ -610,20 +529,6 @@ class SelectionRow:
     y1: float
     x2: float
     y2: float
-
-
-def select_range_segments(
-    segments: list[SelectionSegment],
-    anchor_index: int,
-    focus_index: int,
-) -> list[SelectionSegment]:
-    if not segments:
-        return []
-    low = max(0, min(anchor_index, focus_index))
-    high = min(len(segments) - 1, max(anchor_index, focus_index))
-    if low > high:
-        return []
-    return segments[low : high + 1]
 
 
 def _structure_target(
@@ -896,12 +801,20 @@ def remove_selection(
         slot.items.append(Placeholder(free=True))
         return slot, len(slot.items) - 1, 0
     if not is_editable_input(slot.items[index]):
-        for candidate in range(index - 1, -1, -1):
-            if is_editable_input(slot.items[candidate]):
-                return slot, candidate, 0
+        candidate = editable_position_left(slot, index)
+        if candidate is not None:
+            return slot, candidate, 0
         slot.items.insert(index, Placeholder(free=True))
         return slot, index, 0
     return slot, index, 0
+
+
+def editable_position_left(slot: Slot, index: int) -> Optional[int]:
+    """从 ``index`` 往左找最近的可编辑位置；找不到返回 None。"""
+    for candidate in range(index - 1, -1, -1):
+        if is_editable_input(slot.items[candidate]):
+            return candidate
+    return None
 
 
 def contains_matrix(slot: Slot) -> bool:
@@ -994,10 +907,14 @@ def strip_math_delimiters(source: str) -> str:
     return s
 
 
+def flatten_text(text: str) -> str:
+    """把换行、制表符统一换成普通空格：画布上的文本不保留排版空白。"""
+    text = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
+    return text.replace("\t", " ")
+
+
 def normalize_formula(source: str) -> str:
-    s = source.replace("\r\n", " ").replace("\r", " ").replace("\n", " ")
-    s = s.replace("\t", " ")
-    return strip_math_delimiters(s).strip()
+    return strip_math_delimiters(flatten_text(source)).strip()
 
 
 def to_markdown(latex: str) -> str:

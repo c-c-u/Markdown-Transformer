@@ -6,9 +6,11 @@ import argparse
 import ctypes
 import sys
 import tkinter as tk
+import traceback
 from tkinter import messagebox
 
 from .app import FormulaEditorApp
+
 
 def enable_dpi_awareness() -> None:
     if sys.platform != "win32":
@@ -22,7 +24,7 @@ def enable_dpi_awareness() -> None:
             pass
 
 
-def main(argv: Optional[list[str]] = None) -> int:
+def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="公式编辑器：可视化编辑、实时输出 Markdown 公式")
     parser.add_argument("--smoke-test", action="store_true", help="构建窗口并执行一轮公式编辑/实时输出测试后退出")
     args = parser.parse_args(argv)
@@ -32,8 +34,6 @@ def main(argv: Optional[list[str]] = None) -> int:
     app = FormulaEditorApp(root)
 
     def report_callback_exception(exc_type, exc_value, exc_tb) -> None:
-        import traceback
-
         traceback.print_exception(exc_type, exc_value, exc_tb)
         messagebox.showerror("程序错误", str(exc_value), parent=root)
 
@@ -48,7 +48,6 @@ def main(argv: Optional[list[str]] = None) -> int:
 
     root.mainloop()
     return 0
-
 
 
 if __name__ == "__main__":

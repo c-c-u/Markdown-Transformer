@@ -13,7 +13,6 @@ from PIL import Image, ImageTk
 from .clipboard import copy_text_to_clipboard
 from .config import (
     APP_TITLE,
-    AUTO_FIT_SIZES,
     BASE_FONT_SIZE,
     BG,
     CANVAS_PADDING,
@@ -26,7 +25,7 @@ from .config import (
     TEXT,
     WARNING,
 )
-from .layout import HitArea, Layout, LayoutEngine, NodeBox
+from .layout import HitArea, Layout, LayoutEngine, NodeBox, shift_layout
 from .model import (
     Element,
     Placeholder,
@@ -38,8 +37,10 @@ from .model import (
     apply_structure_unwrap,
     count_placeholders,
     delete_structure_toward,
+    editable_position_left,
     first_placeholder_in_node,
     first_target,
+    flatten_text,
     is_editable_input,
     is_plain_operator_text,
     is_structure_item,
@@ -63,6 +64,25 @@ from .model import (
 from .preview import PreviewMixin
 from .smoke import SmokeTestMixin
 from .ui import UIBuilderMixin
+
+
+def _smallest_overlap(items, x: float, y: float, margin: float = 0.0):
+    """返回包含 (x, y) 的面积最小的元素；都没命中时返回 None。
+
+    ``items`` 里的元素都要有 x1/y1/x2/y2 属性；``margin`` 用来放宽边缘
+    （拖动选择允许 1 像素误差）。
+    """
+    best = None
+    best_area = None
+    for item in items:
+        if not (item.x1 - margin <= x <= item.x2 + margin):
+            continue
+        if not (item.y1 - margin <= y <= item.y2 + margin):
+            continue
+        area = (item.x2 - item.x1) * (item.y2 - item.y1)
+        if best_area is None or area < best_area:
+            best, best_area = item, area
+    return best
 
 
 class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixin):
@@ -180,21 +200,11 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
     def _render_canvas_body(self, width: int) -> None:
         avail_w = width - 44
         max_height = self._canvas_max_height()
-        chosen_size = AUTO_FIT_SIZES[-1]
-        layout: Optional[Layout] = None
 
-        # 先按较大字号试排；如果内容更高，画布会自动长高（最多 max_height）。
-        for candidate in AUTO_FIT_SIZES:
-            candidate_layout = self._layout_slot(self.root_slot, 0.0, 0.0, float(candidate))
-            needed_height = candidate_layout.ascent + candidate_layout.descent + CANVAS_PADDING
-            if candidate_layout.width <= avail_w and needed_height <= max_height:
-                chosen_size = candidate
-                layout = candidate_layout
-                break
-
-        if layout is None:
-            chosen_size = AUTO_FIT_SIZES[-1]
-            layout = self._layout_slot(self.root_slot, 0.0, 0.0, float(chosen_size))
+        # 先按较大字号试排；内容放不下时画布会自动长高（最多 max_height）。
+        layout, chosen_size = self._fit_layout(
+            self.root_slot, avail_w, max_height - CANVAS_PADDING
+        )
 
         content_height = layout.ascent + layout.descent
         desired_height = int(
@@ -205,50 +215,21 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
             self.canvas.configure(height=desired_height)
 
         self._base_size = chosen_size
+        # 布局先平移到画布坐标，再统一绘制：命中区域和结构包围盒一并跟着平移。
         x_offset = (width - layout.width) / 2
         baseline_offset = (desired_height - content_height) / 2 + layout.ascent
-
-        self._hit_areas = [
-            HitArea(
-                hit.slot,
-                hit.index,
-                hit.x1 + x_offset,
-                hit.y1 + baseline_offset,
-                hit.x2 + x_offset,
-                hit.y2 + baseline_offset,
-                [p + x_offset for p in hit.char_positions] if hit.char_positions else None,
-                hit.kind,
-            )
-            for hit in layout.hits
-        ]
-        self._node_boxes = [
-            NodeBox(
-                node.node,
-                node.parent_slot,
-                node.index,
-                node.x1 + x_offset,
-                node.y1 + baseline_offset,
-                node.x2 + x_offset,
-                node.y2 + baseline_offset,
-            )
-            for node in layout.nodes
-        ]
+        layout = shift_layout(layout, x_offset, baseline_offset)
+        self._hit_areas = layout.hits
+        self._node_boxes = layout.nodes
 
         layout.selection = self._selection_rows(layout)
-        self._paint_layout(self.canvas, layout, x_offset, baseline_offset)
-        self._base_size = chosen_size
+        self._paint_layout(self.canvas, layout, 0.0, 0.0)
         self._update_canvas_status()
 
 
     def _find_hit(self, x: float, y: float) -> Optional[HitArea]:
-        candidates = [
-            hit
-            for hit in self._hit_areas
-            if hit.x1 <= x <= hit.x2 and hit.y1 <= y <= hit.y2
-        ]
-        if not candidates:
-            return None
-        return min(candidates, key=lambda hit: (hit.x2 - hit.x1) * (hit.y2 - hit.y1))
+        """命中最小的可点击区域；文本内部的命中区域比文本两端小。"""
+        return _smallest_overlap(self._hit_areas, x, y)
 
 
     # -- 拖动选择 -------------------------------------------------------------
@@ -258,47 +239,22 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
         return (id(slot), index)
 
 
-    def _segments_missing_bounds(self) -> bool:
-        """当前画布上的片段是否与最新的公式树一致（不一致时重新收集）。"""
-        expected = 0
-        text_keys = {
-            self._segment_key(hit.slot, hit.index)
-            for hit in self._hit_areas
-            if hit.kind in ("text", "placeholder")
-        }
-        node_keys = {
-            self._segment_key(node.parent_slot, node.index) for node in self._node_boxes
-        }
-        for slot, index, item in iter_selectable_segments(self.root_slot):
-            expected += 1
-            key = self._segment_key(slot, index)
-            if key not in text_keys and key not in node_keys and not is_structure_item(item):
-                return True
-        return expected != len(self._selection_segments)
-
-
     def _collect_segments(self) -> list[SelectionSegment]:
         """把画布元素整理成按阅读顺序排列、可被选中的片段。
 
         结构以整体出现，它的包围盒覆盖内部内容；因此朝算符方向拖动时，
         算符和它内部的结构会一起被选中。
         """
-        text_bounds = {
-            self._segment_key(hit.slot, hit.index): (hit.x1, hit.y1, hit.x2, hit.y2)
-            for hit in self._hit_areas
-            if hit.kind in ("text", "placeholder")
-        }
-        node_bounds = {
-            self._segment_key(node.parent_slot, node.index): node
-            for node in self._node_boxes
-        }
+        text_bounds, node_bounds = self._bounds_maps(self._hit_areas, self._node_boxes)
 
         segments: list[SelectionSegment] = []
         for slot, index, item in iter_selectable_segments(self.root_slot):
             key = self._segment_key(slot, index)
-            bounds = text_bounds.get(key)
-            if bounds is not None:
-                segments.append(SelectionSegment(item, slot, index, *bounds))
+            hit = text_bounds.get(key)
+            if hit is not None:
+                segments.append(
+                    SelectionSegment(item, slot, index, hit.x1, hit.y1, hit.x2, hit.y2)
+                )
                 continue
             node = node_bounds.get(key)
             if node is not None:
@@ -310,19 +266,26 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
         return segments
 
 
+    def _bounds_maps(
+        self,
+        hits: list[HitArea],
+        nodes: list[NodeBox],
+    ) -> tuple[dict, dict]:
+        """按 (id(槽位), 下标) 建索引：文本/方框的命中区 与 结构包围盒各一张表。"""
+        text_bounds = {
+            self._segment_key(hit.slot, hit.index): hit
+            for hit in hits
+            if hit.kind in ("text", "placeholder")
+        }
+        node_bounds = {
+            self._segment_key(node.parent_slot, node.index): node for node in nodes
+        }
+        return text_bounds, node_bounds
+
+
     def _segment_at(self, segments: list[SelectionSegment], x: float, y: float):
         """找出鼠标下的最小片段；点在结构内部时返回最内层的元素。"""
-        best: Optional[SelectionSegment] = None
-        best_area = None
-        for segment in segments:
-            if not (segment.x1 - 1 <= x <= segment.x2 + 1):
-                continue
-            if not (segment.y1 - 1 <= y <= segment.y2 + 1):
-                continue
-            area = max(1.0, (segment.x2 - segment.x1) * (segment.y2 - segment.y1))
-            if best_area is None or area < best_area:
-                best, best_area = segment, area
-        return best
+        return _smallest_overlap(segments, x, y, margin=1.0)
 
 
     def _text_hit_for(self, segment: SelectionSegment) -> Optional[HitArea]:
@@ -350,16 +313,54 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
         return self._selection_segments.index(segment), offset
 
 
+    def _anchor_row_exclusions(self, y: float) -> set[tuple[int, int]]:
+        """拖选时不能作为焦点目标的片段键（锚点所在格位的外层结构）。
+
+        指针还停在锚点文字所在的这一行里时，锚点所在格位的外层结构不参与
+        焦点判定：否则在分式分子里拖出一点点（还没离开这一行），焦点就会
+        跳到整个分式上，把分母里的内容也一起选中。指针离开这一行后恢复
+        正常，把文本拖到算符上仍然会整体选中它。
+        """
+        if self._selection_anchor is None:
+            return set()
+        position = self._selection_anchor[0]
+        if not (0 <= position < len(self._selection_segments)):
+            return set()
+        anchor = self._selection_segments[position]
+        if not (anchor.y1 <= y <= anchor.y2):
+            return set()
+        parents = slot_parents(self.root_slot)
+        excluded: set[tuple[int, int]] = set()
+        slot = anchor.slot
+        while id(slot) in parents:
+            parent_slot, index = parents[id(slot)]
+            excluded.add(self._segment_key(parent_slot, index))
+            slot = parent_slot
+        return excluded
+
+
     def _selection_point_at(self, x: float, y: float):
         """把画布坐标换算成 (片段下标, 文本偏移)。"""
         segments = self._selection_segments
         if not segments:
             return None
-        segment = self._segment_at(segments, x, y)
+        excluded = self._anchor_row_exclusions(y)
+        candidates = (
+            [
+                segment
+                for segment in segments
+                if self._segment_key(segment.slot, segment.index) not in excluded
+            ]
+            if excluded
+            else segments
+        )
+        if not candidates:
+            candidates = segments
+        segment = self._segment_at(candidates, x, y)
         if segment is None:
             # 点在空白处时取水平距离最近的片段，方便拖到行首/行尾。
             segment = min(
-                segments,
+                candidates,
                 key=lambda seg: min(abs(seg.x1 - x), abs(seg.x2 - x)),
             )
         return self._point_for_segment(segment, x)
@@ -415,26 +416,18 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
         if selection_range is None:
             return []
 
-        hits = {
-            (id(hit.slot), hit.index): hit
-            for hit in layout.hits
-            if hit.kind in ("text", "placeholder")
-        }
-        nodes = {
-            (id(node.parent_slot), node.index): node
-            for node in layout.nodes
-        }
+        text_bounds, node_bounds = self._bounds_maps(layout.hits, layout.nodes)
 
         rows: list[SelectionRow] = []
         for segment in selected:
             key = (id(segment.slot), segment.index)
             if is_structure_item(segment.item):
-                node = nodes.get(key)
+                node = node_bounds.get(key)
                 if node is None:
                     continue
                 x1, y1, x2, y2 = node.x1, node.y1, node.x2, node.y2
             else:
-                hit = hits.get(key)
+                hit = text_bounds.get(key)
                 if hit is None:
                     continue
                 x1, y1, x2, y2 = hit.x1, hit.y1, hit.x2, hit.y2
@@ -465,6 +458,14 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
     def _segment_index_for(self, slot: Slot, index: int) -> Optional[int]:
         for position, segment in enumerate(self._selection_segments):
             if segment.slot is slot and segment.index == index:
+                return position
+        return None
+
+
+    def _target_index(self, targets: list[tuple[Slot, int, Element]]) -> Optional[int]:
+        """当前活动位置在 ``iter_targets`` 结果里的下标；不在列表里时返回 None。"""
+        for position, (slot, index, _item) in enumerate(targets):
+            if slot is self.active_slot and index == self.active_index:
                 return position
         return None
 
@@ -869,7 +870,7 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
         self._update_canvas_status()
 
 
-    def _replace_selection(self, text: str):
+    def _replace_selection(self):
         """有选择时先删掉选中内容，返回插入点 (槽位, 下标, 光标)。"""
         selection_range, selected = self._selection_state()
         if selection_range is None:
@@ -880,13 +881,13 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
 
 
     def _insert_text(self, text: str) -> None:
-        text = text.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").replace("\t", " ")
+        text = flatten_text(text)
         if not text:
             return
 
         if self._has_selection():
             self._push_undo()
-            target = self._replace_selection(text)
+            target = self._replace_selection()
             if target is not None:
                 slot, index, caret = target
                 self.active_slot = slot
@@ -938,7 +939,7 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
         if selection_range is None:
             return False
         self._push_undo()
-        target = self._replace_selection("")
+        target = self._replace_selection()
         if target is not None:
             slot, index, caret = target
             self.active_slot = slot
@@ -972,10 +973,9 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
             slot.items.append(Placeholder(free=True))
             index = 0
         elif not is_editable_input(slot.items[index]):
-            for candidate in range(index - 1, -1, -1):
-                if is_editable_input(slot.items[candidate]):
-                    index = candidate
-                    break
+            found = editable_position_left(slot, index)
+            if found is not None:
+                index = found
         self.active_slot = slot
         self.active_index = index
         self.caret = 0
@@ -1174,12 +1174,7 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
             self.canvas.focus_set()
             return "break"
 
-        current_index = None
-        for i, (slot, index, _target) in enumerate(targets):
-            if slot is self.active_slot and index == self.active_index:
-                current_index = i
-                break
-
+        current_index = self._target_index(targets)
         if current_index is None:
             next_index = 0 if step > 0 else len(targets) - 1
         else:
@@ -1251,11 +1246,7 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
         targets = list(iter_targets(self.root_slot))
         if not targets:
             return "break"
-        current_index = None
-        for i, (slot, index, item) in enumerate(targets):
-            if slot is self.active_slot and index == self.active_index:
-                current_index = i
-                break
+        current_index = self._target_index(targets)
         if current_index is None:
             next_index = 0 if direction > 0 else len(targets) - 1
         else:
@@ -1272,7 +1263,7 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
             data = self.root.clipboard_get()
         except tk.TclError:
             return "break"
-        data = data.replace("\r\n", " ").replace("\r", " ").replace("\n", " ").replace("\t", " ").strip()
+        data = flatten_text(data).strip()
         if data:
             self._insert_text(data)
         return "break"
