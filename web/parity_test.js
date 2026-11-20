@@ -644,6 +644,73 @@ checkTrue(
 );
 app._collapse_selection();
 
+// -- 17c. 选中内容后插入带方框的结构：内容进「主要方框」 ----------------------
+function selectSegments(segments, anchor, focus) {
+  app._collapse_selection();
+  app.selectionSegments = segments.slice();
+  app.selectionAnchor = anchor;
+  app.selectionFocus = focus;
+}
+
+app.clear_formula();
+app.insert_template('sum');
+for (const value of ['i=1', 'n', 'i^2']) {
+  app._insert_text(value);
+  app._move_selection(1);
+}
+render();
+let mainSegs = app._collect_segments();
+const sumSeg = mainSegs.find((segment) => segment.item.kind === 'sum');
+selectSegments(mainSegs, [mainSegs.indexOf(sumSeg), 0], [mainSegs.indexOf(sumSeg), 0]);
+app.insert_template('sqrt');
+check('选中结构 → 根式：求和进被开方数', latex(), '\\sqrt{\\sum_{i=1}^{n} i^2}');
+
+app.clear_formula();
+app._insert_text('x+1');
+render();
+mainSegs = app._collect_segments();
+selectSegments(mainSegs, [0, 0], [0, 3]);
+app.insert_template('integral');
+check('选中文本 → 积分：文本进被积函数', latex(), '\\int_{□}^{□} x+1\\,\\mathrm{d}□');
+
+app.clear_formula();
+app._insert_text('abc');
+render();
+mainSegs = app._collect_segments();
+selectSegments(mainSegs, [0, 1], [0, 2]);
+app.insert_template('fraction');
+check('文本中段 → 分式：只移动选中的字符', latex(), 'a\\frac{b}{□}c');
+
+app.clear_formula();
+app._insert_text('v');
+render();
+mainSegs = app._collect_segments();
+selectSegments(mainSegs, [0, 0], [0, 1]);
+app.insert_template('hat');
+check('选中文本 → 顶标：进顶标内容', latex(), '\\hat{v}');
+
+app.clear_formula();
+app._insert_text('y');
+render();
+mainSegs = app._collect_segments();
+selectSegments(mainSegs, [0, 0], [0, 1]);
+app.insert_template('nth_root');
+check('选中文本 → n 次根：进被开方数', latex(), '\\sqrt[□]{y}');
+
+app.clear_formula();
+app.insert_matrix(2, 2);
+for (const value of ['1', '2', '3', '4']) {
+  app._insert_text(value);
+  app._move_selection(1);
+}
+render();
+mainSegs = app._collect_segments();
+const matrixSeg = mainSegs.find((segment) => segment.item.kind === 'matrix');
+selectSegments(mainSegs, [mainSegs.indexOf(matrixSeg), 0], [mainSegs.indexOf(matrixSeg), 0]);
+app.insert_template('sqrt');
+checkTrue('选中矩阵 → 根式：矩阵进第一个单元格', latex().includes('\\sqrt{\\begin{pmatrix}'), latex());
+app._collapse_selection();
+
 // -- 18. 撤销 / 重做 ---------------------------------------------------------
 app.clear_formula();
 const emptyLatex = latex();

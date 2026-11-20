@@ -379,6 +379,36 @@ def slot_parents(root: Slot) -> dict[int, tuple[Slot, int]]:
 # -- 上下方向键：算符内部预先写死的格位上下关系 -------------------------------
 
 
+def main_slot(node: Element) -> Optional[Slot]:
+    """结构算符的「主要方框」：填内容时优先放进去的位置。
+
+    拖动选中一段内容后再插入带方框的算符时，选中内容会整体放进这个格位：
+    积分放「被积函数」、根式放「被开方数」（根号里面）、分式/微分放「分子」、
+    求和放「求和项」、上标/下标/上下标放「底数」、顶标放「内容」、
+    矩阵/向量放「第一个单元格」。新增结构时在这里补一条即可。
+    """
+    if isinstance(node, SumNode):
+        return node.body
+    if isinstance(node, IntegralNode):
+        return node.body
+    if isinstance(node, FractionNode):
+        return node.numerator
+    if isinstance(node, SuperscriptNode):
+        return node.base
+    if isinstance(node, SubscriptNode):
+        return node.base
+    if isinstance(node, SubSuperscriptNode):
+        return node.base
+    if isinstance(node, AccentNode):
+        return node.body
+    if isinstance(node, RootNode):
+        return node.radicand
+    if isinstance(node, MatrixNode) and node.rows and node.rows[0]:
+        return node.rows[0][0]
+    return None
+
+
+
 def vertical_slot_neighbors(
     node: Element,
 ) -> dict[int, tuple[Optional[Slot], Optional[Slot]]]:
@@ -807,6 +837,111 @@ def remove_selection(
         slot.items.insert(index, Placeholder(free=True))
         return slot, index, 0
     return slot, index, 0
+
+
+def replace_selection_with_node(
+    segments: list[SelectionSegment],
+    node: Element,
+    target: Slot,
+    root: Slot,
+) -> Optional[tuple[Slot, int]]:
+    """把选中的内容取出来放进 ``target`` 格位，并在原来的位置放入 ``node``。
+
+    ``target`` 是新结构的「主要方框」（见 ``main_slot``）。返回 ``node`` 插入后
+    所在的 (槽位, 下标)；没有可移动的内容时返回 None，调用方按普通插入处理。
+
+    移动规则：
+    - 整体选中的结构连同内部内容一起移动；被选中结构内部的片段不再单独
+      移动，避免同一段内容被移动两次。
+    - 文本只移动被选中的字符，两侧未被选中的部分留在原处（必要时拆成两段）。
+    - 空方框是结构规定的输入位置，不参与移动。
+    """
+    parents = slot_parents(root)
+    selected_structures = {
+        (id(segment.slot), segment.index)
+        for segment in segments
+        if is_structure_item(segment.item)
+    }
+
+    def inside_selected_structure(slot: Slot) -> bool:
+        """该槽位是否位于某个被选中的结构里（那里面的内容随结构一起移动）。"""
+        current = slot
+        while id(current) in parents:
+            parent_slot, index = parents[id(current)]
+            if (id(parent_slot), index) in selected_structures:
+                return True
+            current = parent_slot
+        return False
+
+    moves: list[tuple[Slot, int, Element, Optional[tuple[str, str]]]] = []
+    for segment in segments:
+        item = segment.item
+        if isinstance(item, Placeholder):
+            continue
+        if not (0 <= segment.index < len(segment.slot.items)):
+            continue
+        if segment.slot.items[segment.index] is not item:
+            continue
+        if inside_selected_structure(segment.slot):
+            continue
+        if is_structure_item(item):
+            moves.append((segment.slot, segment.index, item, None))
+            continue
+        if not (isinstance(item, TextRun) and item.editable) or not item.text:
+            continue
+        text = item.text
+        start, end = segment.offset if segment.offset is not None else (0, len(text))
+        start = max(0, min(start, len(text)))
+        end = max(start, min(end, len(text)))
+        if end <= start:
+            continue
+        if start == 0 and end == len(text):
+            moves.append((segment.slot, segment.index, item, None))
+            continue
+        # 只移动被选中的字符：没选中的部分留在原处，必要时拆成前后两段。
+        before, middle, after = text[:start], text[start:end], text[end:]
+        moves.append(
+            (
+                segment.slot,
+                segment.index,
+                TextRun(middle, upright=item.upright, free=False),
+                (before, after),
+            )
+        )
+
+    if not moves:
+        return None
+
+    # 从后往前处理：原位删除 / 截断文本，下标不会互相影响。
+    moved: list[Element] = []
+    for slot, index, item, split in reversed(moves):
+        if isinstance(item, TextRun):
+            item.free = False
+        moved.append(item)
+        if not (0 <= index < len(slot.items)):
+            continue
+        if split is None:
+            if slot.items[index] is item:
+                slot.items.pop(index)
+            continue
+        original = slot.items[index]
+        if not (isinstance(original, TextRun) and original.editable):
+            continue
+        before, after = split
+        original.text = before if before else after
+        if before and after:
+            slot.items.insert(
+                index + 1,
+                TextRun(after, upright=original.upright, free=original.free),
+            )
+    moved.reverse()
+
+    first_slot, first_index, _first_item, first_split = moves[0]
+    place_after = first_split is not None and bool(first_split[0])
+    position = max(0, min(first_index + (1 if place_after else 0), len(first_slot.items)))
+    first_slot.items.insert(position, node)
+    target.items = moved
+    return first_slot, position
 
 
 def editable_position_left(slot: Slot, index: int) -> Optional[int]:

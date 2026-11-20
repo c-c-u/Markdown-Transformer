@@ -49,10 +49,12 @@ from .model import (
     iter_targets,
     make_matrix_node,
     make_template,
+    main_slot,
     normalize_formula,
     normalize_free_boundaries,
     plan_structure_unwrap,
     remove_selection,
+    replace_selection_with_node,
     selected_segments_range,
     serialize_slot,
     slot_parents,
@@ -1270,6 +1272,24 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
 
 
     def _insert_node(self, node: Element, label: str) -> None:
+        # 有选中内容时：新结构替换选中内容，选中的内容整体放进它的主要方框。
+        target = main_slot(node)
+        if target is not None and self._has_selection():
+            self._push_undo()
+            selection_range, selected = self._selection_state()
+            placed = replace_selection_with_node(selected, node, target, self.root_slot)
+            self._collapse_selection()
+            if placed is not None:
+                slot, index = placed
+                self._focus_after_structure(slot, index)
+                self._after_formula_change()
+                self._set_status(
+                    f"已把选中的内容放进{label}的「{target.role}」，其余方框依次填写即可。",
+                    "info",
+                )
+                self.canvas.focus_set()
+                return
+
         item = self._active_item()
         slot = self.active_slot
 
@@ -1303,6 +1323,18 @@ class FormulaEditorApp(LayoutEngine, PreviewMixin, SmokeTestMixin, UIBuilderMixi
         self._after_formula_change()
         self._set_status(f"已插入{label}，依次填写方框即可。", "info")
         self.canvas.focus_set()
+
+
+    def _focus_after_structure(self, slot: Slot, index: int) -> None:
+        """插入结构后定位光标：先选它剩下的第一个空方框，没有就放到它右侧。"""
+        target = first_placeholder_in_node(slot.items[index])
+        if target is not None:
+            self.active_slot, self.active_index, self.caret = target[0], target[1], 0
+            return
+        position = index + 1
+        if position >= len(slot.items) or not is_editable_input(slot.items[position]):
+            slot.items.insert(position, Placeholder(free=True))
+        self.active_slot, self.active_index, self.caret = slot, position, 0
 
 
     def insert_template(self, key: str) -> None:

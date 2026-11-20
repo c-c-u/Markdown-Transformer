@@ -688,6 +688,39 @@ function countPlaceholders(slot) {
   return count;
 }
 
+/**
+ * 结构算符的「主要方框」：填内容时优先放进去的位置。
+ *
+ * 拖动选中一段内容后再插入带方框的算符时，选中内容会整体放进这个格位：
+ * 积分放「被积函数」、根式放「被开方数」（根号里面）、分式/微分放「分子」、
+ * 求和放「求和项」、上标/下标/上下标放「底数」、顶标放「内容」、
+ * 矩阵/向量放「第一个单元格」。新增结构时在这里补一条即可。
+ */
+function mainSlot(node) {
+  switch (node.kind) {
+    case 'sum':
+      return node.body;
+    case 'integral':
+      return node.body;
+    case 'fraction':
+      return node.numerator;
+    case 'power':
+      return node.base;
+    case 'subscript':
+      return node.base;
+    case 'sub_sup':
+      return node.base;
+    case 'accent':
+      return node.body;
+    case 'root':
+      return node.radicand;
+    case 'matrix':
+      return node.rows.length && node.rows[0].length ? node.rows[0][0] : null;
+    default:
+      return null;
+  }
+}
+
 // -- 选择、删除与光标 ---------------------------------------------------------
 
 function slotParents(root) {
@@ -1079,6 +1112,100 @@ function editablePositionLeft(slot, index) {
     if (isEditableInput(slot.items[candidate])) return candidate;
   }
   return null;
+}
+
+/**
+ * 把选中的内容取出来放进 target 格位，并在原来的位置放入 node。
+ *
+ * target 是新结构的「主要方框」（见 mainSlot）。返回 node 插入后所在的
+ * [槽位, 下标]；没有可移动的内容时返回 null，调用方按普通插入处理。
+ *
+ * 移动规则：
+ * - 整体选中的结构连同内部内容一起移动；被选中结构内部的片段不再单独
+ *   移动，避免同一段内容被移动两次。
+ * - 文本只移动被选中的字符，两侧未被选中的部分留在原处（必要时拆成两段）。
+ * - 空方框是结构规定的输入位置，不参与移动。
+ */
+function replaceSelectionWithNode(segments, node, target, root) {
+  const parents = slotParents(root);
+  // 被选中的结构按 (父槽位, 下标) 记录，位置和槽位链上的父级位置一一对应。
+  const selectedStructureSlots = new Map();
+  for (const segment of segments) {
+    if (!isStructureItem(segment.item)) continue;
+    if (!selectedStructureSlots.has(segment.slot)) {
+      selectedStructureSlots.set(segment.slot, new Set());
+    }
+    selectedStructureSlots.get(segment.slot).add(segment.index);
+  }
+
+  const insideSelectedStructure = (slot) => {
+    let current = slot;
+    while (parents.has(current)) {
+      const [parentSlot, index] = parents.get(current);
+      const indexes = selectedStructureSlots.get(parentSlot);
+      if (indexes && indexes.has(index)) return true;
+      current = parentSlot;
+    }
+    return false;
+  };
+
+  const moves = [];
+  for (const segment of segments) {
+    const item = segment.item;
+    if (item.kind === 'placeholder') continue;
+    if (!(segment.index >= 0 && segment.index < segment.slot.items.length)) continue;
+    if (segment.slot.items[segment.index] !== item) continue;
+    if (insideSelectedStructure(segment.slot)) continue;
+    if (isStructureItem(item)) {
+      moves.push([segment.slot, segment.index, item, null]);
+      continue;
+    }
+    if (!(item.kind === 'text' && item.editable) || !item.text) continue;
+    const text = item.text;
+    const offset = segment.offset !== null ? segment.offset : [0, textLength(text)];
+    const start = Math.max(0, Math.min(offset[0], textLength(text)));
+    const end = Math.max(start, Math.min(offset[1], textLength(text)));
+    if (end <= start) continue;
+    if (start === 0 && end === textLength(text)) {
+      moves.push([segment.slot, segment.index, item, null]);
+      continue;
+    }
+    // 只移动被选中的字符：没选中的部分留在原处，必要时拆成前后两段。
+    const before = textSlice(text, 0, start);
+    const middle = textSlice(text, start, end);
+    const after = textSlice(text, end);
+    moves.push([segment.slot, segment.index, textRun(middle, { upright: item.upright }), [before, after]]);
+  }
+
+  if (!moves.length) return null;
+
+  // 从后往前处理：原位删除 / 截断文本，下标不会互相影响。
+  const moved = [];
+  for (let position = moves.length - 1; position >= 0; position -= 1) {
+    const [slot, index, item, split] = moves[position];
+    if (item.kind === 'text') item.free = false;
+    moved.push(item);
+    if (!(index >= 0 && index < slot.items.length)) continue;
+    if (split === null) {
+      if (slot.items[index] === item) slot.items.splice(index, 1);
+      continue;
+    }
+    const original = slot.items[index];
+    if (!(original.kind === 'text' && original.editable)) continue;
+    const [before, after] = split;
+    original.text = before || after;
+    if (before && after) {
+      slot.items.splice(index + 1, 0, textRun(after, { upright: original.upright, free: original.free }));
+    }
+  }
+  moved.reverse();
+
+  const [firstSlot, firstIndex, , firstSplit] = moves[0];
+  const placeAfter = firstSplit !== null && !!firstSplit[0];
+  const position = Math.max(0, Math.min(firstIndex + (placeAfter ? 1 : 0), firstSlot.items.length));
+  firstSlot.items.splice(position, 0, node);
+  target.items = moved;
+  return [firstSlot, position];
 }
 
 /** 输出预览使用 mathtext，遇到矩阵时应切换到画布渲染（网页版由 KaTeX 处理）。 */
@@ -3089,6 +3216,25 @@ class EditorApp {
   // -- 插入结构 / 符号 ---------------------------------------------------------
 
   _insert_node(node, label) {
+    // 有选中内容时：新结构替换选中内容，选中的内容整体放进它的主要方框。
+    const mainTarget = mainSlot(node);
+    if (mainTarget !== null && this._has_selection()) {
+      this._push_undo();
+      const state = this._selection_state();
+      const placed = replaceSelectionWithNode(state[1], node, mainTarget, this.rootSlot);
+      this._collapse_selection();
+      if (placed !== null) {
+        this._focus_after_structure(placed[0], placed[1]);
+        this._after_formula_change();
+        this.host.setStatus(
+          '已把选中的内容放进' + label + '的「' + mainTarget.role + '」，其余方框依次填写即可。',
+          'info',
+        );
+        this.host.focus();
+        return;
+      }
+    }
+
     const item = this._active_item();
     const slot = this.activeSlot;
 
@@ -3119,6 +3265,24 @@ class EditorApp {
     this._after_formula_change();
     this.host.setStatus('已插入' + label + '，依次填写方框即可。', 'info');
     this.host.focus();
+  }
+
+  /** 插入结构后定位光标：先选它剩下的第一个空方框，没有就放到它右侧。 */
+  _focus_after_structure(slot, index) {
+    const target = firstPlaceholderInNode(slot.items[index]);
+    if (target !== null) {
+      this.activeSlot = target[0];
+      this.activeIndex = target[1];
+      this.caret = 0;
+      return;
+    }
+    const position = index + 1;
+    if (position >= slot.items.length || !isEditableInput(slot.items[position])) {
+      slot.items.splice(position, 0, { kind: 'placeholder', free: true });
+    }
+    this.activeSlot = slot;
+    this.activeIndex = position;
+    this.caret = 0;
   }
 
   insert_template(key) {

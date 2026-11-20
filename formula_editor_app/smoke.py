@@ -10,6 +10,8 @@ from types import SimpleNamespace
 
 from .config import ACCENT_LATEX, SELECTION_FILL, SYMBOL_LATEX, iter_panel_glyphs
 from .model import (
+    FractionNode,
+    MatrixNode,
     Placeholder,
     SumNode,
     TextRun,
@@ -54,6 +56,7 @@ class SmokeTestMixin:
         self._smoke_operator_char_delete()
         self._smoke_drag_selection()
         self._smoke_empty_box_and_highlights()
+        self._smoke_selection_into_main_box()
         print("SMOKE TEST PASSED")
         print(markdown)
 
@@ -672,4 +675,105 @@ class SmokeTestMixin:
             "selected structure boxes should use the selection color"
         )
         self._on_canvas_drag_end(SimpleNamespace(x=5, y=5))
+        self._collapse_selection()
+
+
+    def _smoke_selection_into_main_box(self) -> None:
+        """选中内容后插入带方框的结构：替换选中内容，选中内容进「主要方框」。"""
+
+        def select(segments, anchor, focus):
+            """直接把拖选状态设成指定片段区间，省去逐像素模拟拖动。"""
+            self._collapse_selection()
+            self._selection_segments = list(segments)
+            self._selection_anchor = anchor
+            self._selection_focus = focus
+
+        # 求和 → 根式：整个求和进被开方数（根号里面）。
+        self.clear_formula()
+        self.insert_template("sum")
+        for value in ("i=1", "n", "i^2"):
+            self._insert_text(value)
+            self._move_selection(1)
+        self._render()
+        segments = self._collect_segments()
+        sum_segment = next(s for s in segments if isinstance(s.item, SumNode))
+        position = segments.index(sum_segment)
+        select(segments, (position, 0), (position, 0))
+        self.insert_template("sqrt")
+        assert self._latex() == r"\sqrt{\sum_{i=1}^{n} i^2}", self._latex()
+
+        # 文本 → 积分：文本进被积函数，上下限仍然是空方框。
+        self.clear_formula()
+        self._insert_text("x+1")
+        self._render()
+        segments = self._collect_segments()
+        select(segments, (0, 0), (0, 3))
+        self.insert_template("integral")
+        assert self._latex() == r"\int_{□}^{□} x+1\,\mathrm{d}□", self._latex()
+
+        # 文本中段 → 分式：只移动选中的字符，没选中的部分留在原处。
+        self.clear_formula()
+        self._insert_text("abc")
+        self._render()
+        segments = self._collect_segments()
+        select(segments, (0, 1), (0, 2))
+        self.insert_template("fraction")
+        assert self._latex() == r"a\frac{b}{□}c", self._latex()
+
+        # 文本 → 顶标：进顶标内容；结构里没有空方框时，光标落在它右侧。
+        self.clear_formula()
+        self._insert_text("v")
+        self._render()
+        segments = self._collect_segments()
+        select(segments, (0, 0), (0, 1))
+        self.insert_template("hat")
+        assert self._latex() == r"\hat{v}", self._latex()
+        assert isinstance(self._active_item(), Placeholder), (
+            "with all boxes filled the caret should sit in the position right of the structure"
+        )
+
+        # n 次根：进被开方数（根号里面），不是根指数。
+        self.clear_formula()
+        self._insert_text("y")
+        self._render()
+        segments = self._collect_segments()
+        select(segments, (0, 0), (0, 1))
+        self.insert_template("nth_root")
+        assert self._latex() == r"\sqrt[□]{y}", self._latex()
+
+        # 同时选中结构和它内部的文字：内容只移动一次，不重复。
+        self.clear_formula()
+        self.insert_template("fraction")
+        self._insert_text("a")
+        self._move_selection(1)
+        self._insert_text("b")
+        self._render()
+        segments = self._collect_segments()
+        fraction_segment = next(s for s in segments if isinstance(s.item, FractionNode))
+        inner_segment = next(
+            s for s in segments if isinstance(s.item, TextRun) and s.item.text == "a"
+        )
+        select(
+            segments,
+            (segments.index(fraction_segment), 0),
+            (segments.index(inner_segment), 1),
+        )
+        self.insert_template("integral")
+        assert self._latex() == r"\int_{□}^{□} \frac{a}{b}\,\mathrm{d}□", self._latex()
+
+        # 矩阵 → 平方根：进第一个单元格。
+        self.clear_formula()
+        self.insert_matrix(2, 2)
+        for value in ("1", "2", "3", "4"):
+            self._insert_text(value)
+            self._move_selection(1)
+        self._render()
+        segments = self._collect_segments()
+        matrix_segment = next(s for s in segments if isinstance(s.item, MatrixNode))
+        position = segments.index(matrix_segment)
+        select(segments, (position, 0), (position, 0))
+        self.insert_template("sqrt")
+        assert self._latex() == (
+            r"\sqrt{\begin{pmatrix} 1 & 2 \\ 3 & 4 \end{pmatrix}}"
+        ), self._latex()
         self._collapse_selection()

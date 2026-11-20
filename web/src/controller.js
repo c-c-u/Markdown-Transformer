@@ -1206,6 +1206,25 @@ class EditorApp {
   // -- 插入结构 / 符号 ---------------------------------------------------------
 
   _insert_node(node, label) {
+    // 有选中内容时：新结构替换选中内容，选中的内容整体放进它的主要方框。
+    const mainTarget = mainSlot(node);
+    if (mainTarget !== null && this._has_selection()) {
+      this._push_undo();
+      const state = this._selection_state();
+      const placed = replaceSelectionWithNode(state[1], node, mainTarget, this.rootSlot);
+      this._collapse_selection();
+      if (placed !== null) {
+        this._focus_after_structure(placed[0], placed[1]);
+        this._after_formula_change();
+        this.host.setStatus(
+          '已把选中的内容放进' + label + '的「' + mainTarget.role + '」，其余方框依次填写即可。',
+          'info',
+        );
+        this.host.focus();
+        return;
+      }
+    }
+
     const item = this._active_item();
     const slot = this.activeSlot;
 
@@ -1236,6 +1255,24 @@ class EditorApp {
     this._after_formula_change();
     this.host.setStatus('已插入' + label + '，依次填写方框即可。', 'info');
     this.host.focus();
+  }
+
+  /** 插入结构后定位光标：先选它剩下的第一个空方框，没有就放到它右侧。 */
+  _focus_after_structure(slot, index) {
+    const target = firstPlaceholderInNode(slot.items[index]);
+    if (target !== null) {
+      this.activeSlot = target[0];
+      this.activeIndex = target[1];
+      this.caret = 0;
+      return;
+    }
+    const position = index + 1;
+    if (position >= slot.items.length || !isEditableInput(slot.items[position])) {
+      slot.items.splice(position, 0, { kind: 'placeholder', free: true });
+    }
+    this.activeSlot = slot;
+    this.activeIndex = position;
+    this.caret = 0;
   }
 
   insert_template(key) {
